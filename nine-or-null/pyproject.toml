@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "nine-or-null"
+version = "0.1.0"
+description = "Is this simfile sync'd to the +9ms standard or to null?"
+authors = ["telp"]
+readme = "README.md"
+packages = [{include = "nine_or_null"}]
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.12"
+numpy = "^1.24.2"
+pydub = "^0.25.1"
+matplotlib = "^3.7.1"
+wxPython = "^4.2.0"
+jupyter = "^1.0.0"
+scipy = "^1.10.1"
+simfile = "^2.1.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
