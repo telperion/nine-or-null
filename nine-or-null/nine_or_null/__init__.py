@@ -39,9 +39,9 @@ def slugify(value, allow_unicode=False):
 
 
 def guess_paradigm(sync_bias):
-    if sync_bias > -0.003 and sync_bias < 0.003:
+    if sync_bias > -0.0035 and sync_bias < 0.0035:
         return 'probably null'
-    elif sync_bias > 0.006 and sync_bias < 0.012:
+    elif sync_bias > 0.0055 and sync_bias < 0.0125:
         return 'probably +9ms'
     else:
         return 'unclear paradigm'
@@ -112,7 +112,7 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
         plt.pcolormesh(times, frequencies, splog)
         plt.ylabel('Frequency [Hz]')
         plt.xlabel('Time [sec]')
-        plt.title(f'Full spectrogram for {simfile_artist} - {simfile_title}')
+        plt.title(f'Full spectrogram for {simfile_artist} - "{simfile_title}"')
         plt.show()
 
     ###################################################################
