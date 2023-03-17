@@ -111,7 +111,7 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     )
     splog = np.log2(spectrogram + eps)                              # Calculate in log domain
 
-    if show_intermediate_plots:
+    if show_intermediate_plots and False:
         fig = plt.figure(figsize=(30, 6))
         plt.pcolormesh(times, frequencies, splog)
         plt.ylabel('Frequency [Hz]')
@@ -122,7 +122,7 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     ###################################################################
     # Use beat timing information to construct a "fingerprint"
     # of audio spectra around the time each beat takes place
-    fingerprint_sec = 0.10                  # Moving fingerprint window (100ms is quite reasonable)
+    fingerprint_sec = 100e-3                # Moving fingerprint window (100ms is quite reasonable)
     frequency_emphasis_factor = 3000        # filt(f) = f * e^(-f / emphasis); use None to bypass
 
     # Recalculate actual timestamps of spectrogram measurements
@@ -215,9 +215,32 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     # Set up visuals to show the user what's going on.
     plot_title = f'Sync fingerprint for {simfile_artist} - "{simfile_title}"\nDerived sync bias: {sync_bias:0.3f} ({probable_bias})'
     sanitized_title = slugify(simfile_title, allow_unicode=False)
-    time_ticks = np.arange(-fingerprint_sec * 500, fingerprint_sec * 501, 10)
+    time_ticks = np.hstack((
+        np.arange(0, fingerprint_sec * -0.51e3, -10),
+        np.arange(0, fingerprint_sec *  0.51e3,  10)
+    ))
     frequency_line = np.ones(np.shape(frequencies)) * sync_bias * 1e3
     beatindex_line = np.ones(np.shape(digest)[0]) * sync_bias * 1e3
+    post_kernel_over_freq = np.interp(
+        post_kernel_flat,
+        (
+            post_kernel_flat[edge_discard:-edge_discard].min(),
+            post_kernel_flat[edge_discard:-edge_discard].max()
+        ),
+        (
+            frequencies.min() * 0.9 + frequencies.max() * 0.1,
+            frequencies.min() * 0.1 + frequencies.max() * 0.9
+        ))
+    post_kernel_over_beat = np.interp(
+        post_kernel_flat,
+        (
+            post_kernel_flat[edge_discard:-edge_discard].min(),
+            post_kernel_flat[edge_discard:-edge_discard].max()
+        ),
+        (
+            digest.shape[0] * 0.2,
+            digest.shape[0] * 0.8
+        ))
     
     if plot_dir is not None:
         os.makedirs(plot_dir, exist_ok=True)
@@ -229,8 +252,10 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     plt.pcolormesh(fingerprint_times_ms, frequencies, acc)
     plt.ylabel('Frequency [Hz]')
     plt.xlabel('Time [msec]')
-    plt.xticks(time_ticks)
+    plt.plot(fingerprint_times_ms + 1e3 * time_edge_offset, post_kernel_over_freq, 'w-')
     plt.plot(frequency_line, frequencies, 'r-')
+    plt.xticks(time_ticks)
+    plt.xlim(-fingerprint_sec * 0.5e3, fingerprint_sec * 0.5e3)
     plt.title(plot_title)
     if show_intermediate_plots:
         plt.show()
@@ -243,8 +268,10 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     plt.clim(np.percentile(digest[:], 10), np.percentile(digest[:], 90))
     plt.ylabel('Beat Index')
     plt.xlabel('Time [msec]')
-    plt.xticks(time_ticks)
+    plt.plot(fingerprint_times_ms + 1e3 * time_edge_offset, post_kernel_over_beat, 'w-')
     plt.plot(beatindex_line, digest_axis, 'r-')
+    plt.xticks(time_ticks)
+    plt.xlim(-fingerprint_sec * 0.5e3, fingerprint_sec * 0.5e3)
     plt.title(plot_title)
     if show_intermediate_plots:
         plt.show()
@@ -256,14 +283,17 @@ def check_sync_bias(simfile_dir, plot_dir=None, show_intermediate_plots=False, k
     if kernel_target == KernelTarget.ACCUMULATOR:
         plt.pcolormesh(fingerprint_times_ms, frequencies, post_kernel)
         plt.ylabel('Frequency [Hz]')
+        plt.plot(fingerprint_times_ms + 1e3 * time_edge_offset, post_kernel_over_freq, 'w-')
         plt.plot(frequency_line, frequencies, 'r-')
     else: # kernel_target == KernelTarget.DIGEST
         plt.pcolormesh(fingerprint_times_ms, digest_axis, post_kernel)
         plt.ylabel('Beat Index')
+        plt.plot(fingerprint_times_ms + 1e3 * time_edge_offset, post_kernel_over_beat, 'w-')
         plt.plot(beatindex_line, digest_axis, 'r-')
     plt.clim(np.percentile(post_kernel[:], 3), np.percentile(post_kernel[:], 97))
     plt.xlabel('Time [msec]')
     plt.xticks(time_ticks)
+    plt.xlim(-fingerprint_sec * 0.5e3, fingerprint_sec * 0.5e3)
     plt.title(plot_title)
     if show_intermediate_plots:
         plt.show()
