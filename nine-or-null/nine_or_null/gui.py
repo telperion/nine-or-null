@@ -290,7 +290,7 @@ class NineOrNull(wx.Frame):
         # --------------------------------------------------------------
         # Results table
         self.grid_results = wx.grid.Grid(self.panel_main)
-        self.grid_results.CreateGrid(30, 4)
+        self.grid_results.CreateGrid(100, 4)
         self.grid_results.SetMinSize((318, 312))
         
         self.grid_results.DisableCellEditControl()
@@ -509,7 +509,7 @@ class NineOrNull(wx.Frame):
             paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result']) == paradigm}
             logging.info(f"Files sync'd to {paradigm:^16s}: {len(paradigm_map)}")
             for k, v in paradigm_map.items():
-                logging.info(f'{k:>50s}: derived sync bias = {v:+0.3f}')
+                logging.info(f"{k:>50s}\n>>> derived sync bias = {v['bias_result']:+0.3f}")
             paradigm_count[paradigm] = len(paradigm_map)
 
         self.entry_null.SetValue(   f"{paradigm_count['null']}")
