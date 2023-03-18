@@ -1,4 +1,4 @@
-_VERSION = '0.3.1'
+_VERSION = '0.4.0'
 
 from datetime import datetime as dt
 from enum import IntEnum

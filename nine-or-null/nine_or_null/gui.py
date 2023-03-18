@@ -603,7 +603,7 @@ class NineOrNull(wx.Frame):
         self.Close(True)
 
     def OnHelp(self, event):
-        wx.LaunchDefaultBrowser('https://github.com/telperion')
+        wx.LaunchDefaultBrowser('https://github.com/telperion/nine-or-null')
 
     def OnAbout(self, event):
         dlg = AboutWithLinks(self, wx.ID_ABOUT, title=f'About +9ms or Null? v{_VERSION}')
