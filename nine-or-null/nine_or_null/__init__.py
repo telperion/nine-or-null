@@ -1,5 +1,6 @@
-_VERSION = '0.2.0'
+_VERSION = '0.3.0'
 
+from datetime import datetime as dt
 from enum import IntEnum
 import logging
 import os
@@ -46,10 +47,18 @@ def slugify(value, allow_unicode=False):
     return re.sub(r'[-\s]+', '-', value).strip('-_')
 
 
+def timedelta_as_hhmmss(delta):
+    total_sec = int(delta.total_seconds())
+    h = total_sec // 3600
+    m = (total_sec % 3600) // 60
+    s = (total_sec % 60)
+    return f'{h:02d}:{m:02d}:{s:02d}'
+
+
 def guess_paradigm(sync_bias_ms, tolerance=3, consider_null=True, consider_p9ms=True, short_paradigm=True, **kwargs):
-    if sync_bias_ms > _NINEORNULL_NULL - tolerance and sync_bias_ms < _NINEORNULL_NULL + tolerance:
+    if consider_null and (sync_bias_ms > _NINEORNULL_NULL - tolerance and sync_bias_ms < _NINEORNULL_NULL + tolerance):
         return short_paradigm and 'null' or 'probably null'
-    elif sync_bias_ms > _NINEORNULL_P9MS - tolerance and sync_bias_ms < _NINEORNULL_P9MS + tolerance:
+    elif consider_p9ms and (sync_bias_ms > _NINEORNULL_P9MS - tolerance and sync_bias_ms < _NINEORNULL_P9MS + tolerance):
         return short_paradigm and '+9ms' or 'probably +9ms'
     else:
         return short_paradigm and '????' or 'unclear paradigm'
@@ -68,6 +77,7 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     fingerprint_ms = kwargs.get('fingerprint_ms', 50)
     magic_offset_ms = kwargs.get('magic_offset', 2.0)
     kernel_target = kwargs.get('kernel_target', KernelTarget.DIGEST)
+    hide_yticks = kwargs.get('hide_yticks', False)
 
     edge_discard = 5        # TODO: pull in from calling function I guess
     digest_axis = np.arange(digest.shape[0])
@@ -108,6 +118,8 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.plot(times_ms + magic_offset_ms, post_kernel_over_freq, 'w-')
     ax.plot(frequency_line, frequencies_kHz, 'r-')
     ax.set_xticks(time_ticks)
+    if hide_yticks:
+        ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
     ax.get_figure().suptitle(plot_title)
 
@@ -121,6 +133,8 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.plot(times_ms + magic_offset_ms, post_kernel_over_beat, 'w-')
     ax.plot(beatindex_line, digest_axis, 'r-')
     ax.set_xticks(time_ticks)
+    if hide_yticks:
+        ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
     ax.get_figure().suptitle(plot_title)
 
@@ -140,8 +154,17 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     pcm.set_clim(np.percentile(post_kernel[:], 3), np.percentile(post_kernel[:], 97))
     ax.set_xlabel('Time [msec]')
     ax.set_xticks(time_ticks)
+    if hide_yticks:
+        ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
     ax.get_figure().suptitle(plot_title)
+
+
+def get_full_title(base_simfile):
+    simfile_artist   = base_simfile.artisttranslit   or base_simfile.artist
+    simfile_title    = base_simfile.titletranslit    or base_simfile.title
+    simfile_subtitle = base_simfile.subtitletranslit or base_simfile.subtitle
+    return f'{simfile_title}{simfile_subtitle and (" " + simfile_subtitle) or ""}'
 
 
 def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
@@ -307,7 +330,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     probable_bias = guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)
     # print(f'Sync bias: {sync_bias:0.3f} ({probable_bias})')
 
-    full_title = f'{simfile_title}{simfile_subtitle and (" " + simfile_subtitle) or ""}'
+    full_title = get_full_title(base_simfile)
 
     fingerprint['beat_digest'] = digest
     fingerprint['freq_domain'] = acc
@@ -338,7 +361,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     plot_hook_gui = kwargs.get('plot_hook_gui')
     if plot_hook_gui is not None:
-        plot_fingerprint(fingerprint, plot_hook_gui.figure.get_axes(), **kwargs)
+        plot_fingerprint(fingerprint, plot_hook_gui.figure.get_axes(), hide_yticks=True, **kwargs)
         plot_hook_gui.canvas.draw()
 
     if show_intermediate_plots:
@@ -351,7 +374,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
 
 def batch_process(root_path=None, **kwargs):
-    grid_hook_gui = kwargs.get('grid_hook_gui')
+    gui_hook = kwargs.get('gui_hook')
 
     if root_path is None:
         root_path = os.getcwd()
@@ -363,8 +386,11 @@ def batch_process(root_path=None, **kwargs):
     
     simfile_dirs = sorted(list(set(simfile_dirs)))
     fingerprints = {}
-    print(simfile_dirs)
+    logging.info(f'Found {len(simfile_dirs)} simfiles in {root_path}')
+    for d in simfile_dirs:
+        logging.info(f'\t{os.path.relpath(d, root_path)}')
 
+    time_start = dt.utcnow()
     for i, p in enumerate(simfile_dirs):
         # Open simfile
         test_simfile_path = None
@@ -377,16 +403,31 @@ def batch_process(root_path=None, **kwargs):
             continue
 
         try:
+            time_elapsed = dt.utcnow() - time_start
+            time_elapsed_str = timedelta_as_hhmmss(time_elapsed) + ' elapsed'
+            if i > 0:
+                time_expected = time_elapsed * (len(simfile_dirs) / i)
+                time_elapsed_str += ', ' + timedelta_as_hhmmss(time_expected) + ' expected'
+            logging.info(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str})')
+            if gui_hook is not None:
+                gui_hook.SetStatusText(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str}) Checking sync bias on {os.path.relpath(p, root_path)}...')
+                gui_hook.allow_to_update()
             base_simfile = simfile.open(test_simfile_path)
             fingerprints[p] = check_sync_bias(p, base_simfile, chart=None, save_plots=True, show_intermediate_plots=False, **kwargs)
             sync_bias_ms = fingerprints[p]['bias_result']
-            logging.info(f'{p}\n>>> derived sync bias = {sync_bias_ms:+0.1f} ({guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)})')
-            if grid_hook_gui is not None:
-                grid_hook_gui.SetCellValue(i, 0, os.path.relpath(p, root_path))
-                grid_hook_gui.SetCellValue(i, 1, '----')
-                grid_hook_gui.SetCellValue(i, 2, f'{sync_bias_ms:+0.1f}')
-                grid_hook_gui.SetCellValue(i, 3, guess_paradigm(sync_bias_ms, **kwargs))
-                grid_hook_gui.ForceRefresh()
+            logging.info(f'\t{p}')
+            logging.info(f'\tderived sync bias = {sync_bias_ms:+0.1f} ms ({guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)})')
+            if gui_hook is not None:
+                gui_hook.grid_results.InsertRows(i, 1)
+                gui_hook.grid_results.SetCellValue(i, 0, os.path.relpath(p, root_path))
+                gui_hook.grid_results.SetCellValue(i, 1, '----')
+                gui_hook.grid_results.SetCellValue(i, 2, f'{sync_bias_ms:+0.1f}')
+                gui_hook.grid_results.SetCellValue(i, 3, guess_paradigm(sync_bias_ms, **kwargs))
+                gui_hook.grid_results.MakeCellVisible(i, 3)
+                for j in range(4):
+                    gui_hook.grid_results.SetReadOnly(i, j)
+                gui_hook.grid_results.ForceRefresh()
+                gui_hook.allow_to_update()
         except Exception as e:
             logging.exception(e)
 

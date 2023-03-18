@@ -1,3 +1,4 @@
+from datetime import datetime as dt, timedelta as td
 import logging
 import os
 import re
@@ -13,7 +14,7 @@ import wx
 import wx.adv
 import wx.grid
 
-from . import batch_process, check_sync_bias, guess_paradigm, process_pack, slugify, _VERSION
+from . import batch_process, guess_paradigm, plot_fingerprint, _VERSION
 
 class AboutWithLinks(wx.Dialog):
     def __init__(self, *args, **kwargs):
@@ -217,7 +218,10 @@ class NineOrNull(wx.Frame):
 
         # --------------------------------------------------------------
         # Process!
-        self.button_process = wx.Button(self.panel_main, label='did you know the ITG r21 patch is over 16 years old? let that sync in')
+        
+        # October 11, 2006 (but I'm lazy about time zones)
+        years_since_r21 = int((dt.utcnow() - dt(year=2006, month=10, day=12)) / td(days=365.2425))
+        self.button_process = wx.Button(self.panel_main, label=f'did you know the ITG r21 patch is over {years_since_r21} years old? let that sync in')
         self.button_process.SetToolTip(wx.ToolTip('Process all simfiles in the directory above using the specified parameters.'))
         self.button_process.SetMinSize((528, 30))
         self.button_process.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD, False))
@@ -290,7 +294,7 @@ class NineOrNull(wx.Frame):
         # --------------------------------------------------------------
         # Results table
         self.grid_results = wx.grid.Grid(self.panel_main)
-        self.grid_results.CreateGrid(100, 4)
+        self.grid_results.CreateGrid(0, 4)
         self.grid_results.SetMinSize((318, 312))
         
         self.grid_results.DisableCellEditControl()
@@ -333,9 +337,17 @@ class NineOrNull(wx.Frame):
         self.panel_plot.axes[2].set_ylabel('Post-kernel fingerprint')
         self.panel_plot.axes[2].set_xlabel('Offset from beat [ms]')
         for i in range(3):
-            self.panel_plot.axes[i].set_box_aspect(0.7)
+            self.panel_plot.axes[i].set_box_aspect(2/3)
             self.panel_plot.axes[i].margins(x=0.01, y=0.01)
             self.panel_plot.axes[i].set_yticks([])
+        self.panel_plot.figure.subplots_adjust(
+            left=0.08,
+            right=0.99,
+            bottom=0.05,
+            top=0.89,
+            wspace=0,
+            hspace=0
+        )
         self.panel_plot.canvas = FigureCanvas(self.panel_main, -1, self.panel_plot.figure)
         self.panel_plot.canvas.SetMinSize((180, 402))
         self.panel_plot.canvas.SetToolTip(wx.ToolTip('Double-click on a result row to examine the audio fingerprint.\n(These plots are also stored in the report directory)'))
@@ -430,6 +442,9 @@ class NineOrNull(wx.Frame):
         params['magic_offset'] = self.spin_magic_offset.GetValue()
         return params
     
+    def allow_to_update(self):
+        wx.Yield()
+
 
     def OnTogglePathAuto(self, event):
         if event.IsChecked():
@@ -487,40 +502,68 @@ class NineOrNull(wx.Frame):
             print(f"Report directory exists: {params['report_path']}")
 
         # Set up logging
+        logging.getLogger().handlers.clear()
+
         log_path = os.path.join(params['report_path'], 'nine-or-null.log')
+        log_fmt = logging.Formatter(
+            '[%(asctime)s.%(msecs)03d] %(levelname)-8s %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         logging.basicConfig(
             filename=log_path,
             encoding='utf-8',
             level=logging.INFO
         )
         logging.getLogger().addHandler(logging.StreamHandler())
+        for handler in logging.getLogger().handlers:
+            handler.setFormatter(log_fmt)
+
+        # Recall parameters.
+        header_str = f'+9ms or Null? v{_VERSION} (GUI)'
+        logging.info(f"{'=' * 20}{header_str:^32s}{'=' * 20}")
+        logging.info('Parameter settings:')
+        for k, v in params.items():
+            logging.info(f'\t{k} = {v}')
+
+        # Clear grid and counters.
+        if self.grid_results.GetNumberRows() > 0:
+            self.grid_results.DeleteRows(0, self.grid_results.GetNumberRows())
+        self.entry_null.SetValue(   '----')
+        self.entry_p9ms.SetValue(   '----')
+        self.entry_unknown.SetValue('----')
 
         self.fingerprints = batch_process(
             plot_hook_gui=self.panel_plot,
             grid_hook_gui=self.grid_results,
+            gui_hook=self,
             **params
         )
+        self.SetStatusText(f'Done! {len(self.fingerprints)} fingerprints processed.')
 
         logging.info('-' * 72)
-        logging.info(f"Sync bias report: {len(self.fingerprints)} simfiles processed in {params['root_path']}")
+        logging.info(f"Sync bias report: {len(self.fingerprints)} fingerprints processed in {params['root_path']}")
 
         paradigm_count = {}
         for paradigm in ['+9ms', 'null', '????']:
             paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result']) == paradigm}
-            logging.info(f"Files sync'd to {paradigm:^16s}: {len(paradigm_map)}")
+            logging.info(f"Files sync'd to {paradigm}: {len(paradigm_map)}")
             for k, v in paradigm_map.items():
-                logging.info(f"{k:>50s}\n>>> derived sync bias = {v['bias_result']:+0.3f}")
+                logging.info(f"\t{k:>50s}")
+                logging.info(f"\t\tderived sync bias = {v['bias_result']:+0.1f} ms")
             paradigm_count[paradigm] = len(paradigm_map)
 
-        self.entry_null.SetValue(   f"{paradigm_count['null']}")
-        self.entry_p9ms.SetValue(   f"{paradigm_count['+9ms']}")
-        self.entry_unknown.SetValue(f"{paradigm_count['????']}")
+        if params['consider_null']:
+            self.entry_null.SetValue(f"{paradigm_count['null']}")
+        if params['consider_p9ms']:
+            self.entry_p9ms.SetValue(f"{paradigm_count['+9ms']}")
+        self.entry_unknown.SetValue( f"{paradigm_count['????']}")
 
         paradigm_most = sorted([k for k in paradigm_count], key=lambda k: paradigm_count.get(k, 0))
         logging.info('=' * 72)
         logging.info(f'Pack sync paradigm: {paradigm_most[-1]}')
         logging.info('-' * 72)
 
+        # Done!
 
 
     def OnOpenLogs(self, event):
@@ -543,6 +586,11 @@ class NineOrNull(wx.Frame):
 
     def OnClickResultRow(self, event):
         print('Double-clicked Result Row')
+        params = self.collect_parameters()
+        row_to_key = [k for k in self.fingerprints.keys()]
+        # print([f'{i}: {k}' for i, k in enumerate(row_to_key)])
+        plot_fingerprint(self.fingerprints[row_to_key[event.GetRow()]], self.panel_plot.figure.get_axes(), hide_yticks=True, **params)
+        self.panel_plot.canvas.draw()
         event.Skip()
 
     def OnConvert9msToNull(self, event):
