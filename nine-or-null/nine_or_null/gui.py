@@ -23,9 +23,9 @@ class AboutWithLinks(wx.Dialog):
         self.SetSize((540, 300))
 
         label_preceding = wx.StaticText(self,
-            label=re.sub('\n[ \t]+', '\n', """+9ms or Null? is a StepMania simfile sync bias utility.
+            label=re.sub('\n[ \t]+', '\n', """+9ms or Null? is a StepMania simfile unbiasing utility.
 
-            This utility can determine whether the sync bias of a simfile or a pack is +9ms (In The Groove) or null (general StepMania) and offer to unify it under one of those two options.
+            This utility can determine whether the sync bias of a simfile or a pack is +9ms (In The Groove) or null (general StepMania). A future version will also offer to unify it under one of those two options.
             It is not meant to perform a millisecond-perfect sync!
 
             You can read more about the origins of the +9ms sync bias here:"""),
@@ -327,7 +327,7 @@ class NineOrNull(wx.Frame):
         self.panel_plot.figure = Figure(dpi=48)
         gs = self.panel_plot.figure.add_gridspec(3)         # hspace
         self.panel_plot.axes = gs.subplots(sharex=True, sharey=False)
-        self.panel_plot.figure.suptitle('Audio fingerprint\nArtist - "Title"\nSync bias: +0.003 (probably null)')
+        self.panel_plot.figure.suptitle('Sync fingerprint\nArtist - "Title"\nSync bias: +0.003 (probably null)')
         x_test = np.linspace(-50, 50, 101, endpoint=True)
         # self.panel_plot.axes[0].plot(x_test, np.sin(x_test / 10), 'r-')
         # self.panel_plot.axes[1].plot(x_test, np.sin(x_test / 12), 'g-')
@@ -610,9 +610,12 @@ class NineOrNull(wx.Frame):
         dlg.ShowModal()
 
 
-if __name__ == '__main__':
+def start_gui():
     app = wx.App()
     frame = NineOrNull(None, title=f'+9ms or Null? v{_VERSION}', style=wx.DEFAULT_FRAME_STYLE & ~(wx.RESIZE_BORDER | wx.MAXIMIZE_BOX))
     frame.Show()
     app.MainLoop()
 
+
+if __name__ == '__main__':
+    start_gui()
