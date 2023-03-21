@@ -1,3 +1,4 @@
+import csv
 from datetime import datetime as dt, timedelta as td
 import logging
 import os
@@ -14,7 +15,7 @@ import wx
 import wx.adv
 import wx.grid
 
-from . import batch_process, guess_paradigm, plot_fingerprint, _VERSION
+from . import batch_process, guess_paradigm, plot_fingerprint, _VERSION, _CSV_FIELDNAMES
 
 class AboutWithLinks(wx.Dialog):
     def __init__(self, *args, **kwargs):
@@ -518,6 +519,8 @@ class NineOrNull(wx.Frame):
         for handler in logging.getLogger().handlers:
             handler.setFormatter(log_fmt)
 
+        csv_path = os.path.join(params['report_path'], 'nine-or-null.csv')
+
         # Recall parameters.
         header_str = f'+9ms or Null? v{_VERSION} (GUI)'
         logging.info(f"{'=' * 20}{header_str:^32s}{'=' * 20}")
@@ -532,12 +535,17 @@ class NineOrNull(wx.Frame):
         self.entry_p9ms.SetValue(   '----')
         self.entry_unknown.SetValue('----')
 
-        self.fingerprints = batch_process(
-            plot_hook_gui=self.panel_plot,
-            grid_hook_gui=self.grid_results,
-            gui_hook=self,
-            **params
-        )
+        with open(csv_path, 'w', newline='') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=_CSV_FIELDNAMES, extrasaction='ignore')
+            writer.writeheader()
+
+            self.fingerprints = batch_process(
+                plot_hook_gui=self.panel_plot,
+                grid_hook_gui=self.grid_results,
+                gui_hook=self,
+                csv_hook=writer,
+                **params
+            )
         self.SetStatusText(f'Done! {len(self.fingerprints)} fingerprints processed.')
 
         logging.info('-' * 72)

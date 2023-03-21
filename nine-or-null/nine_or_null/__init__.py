@@ -1,5 +1,7 @@
-_VERSION = '0.4.0'
+_VERSION = '0.4.1'
 
+from collections.abc import Container
+import csv
 from datetime import datetime as dt
 from enum import IntEnum
 import logging
@@ -18,7 +20,49 @@ from simfile.timing.engine import TimingEngine
 
 _NINEORNULL_NULL = 0
 _NINEORNULL_P9MS = 9
+_CSV_FIELDNAMES = [
+    'path',
+    'title',
+    'titletranslit',
+    'subtitle',
+    'subtitletranslit',
+    'artist',
+    'artisttranslit',
+    'slot',
+    'bias',
+    'paradigm'
+]
+_PARAMETERS = {
+    # Default parameters.
+    'root_path':        'Path to a simfile, pack, or collection of packs to analyze. If not provided, the GUI is invoked instead.',
+    'report_path':      'The destination directory for the sync bias report and audio fingerprint plots. If not provided, defaults to "<root_path>/__bias-check".',
+    'consider_null':    'Consider charts close enough to 0ms bias to be "correct" under the null (StepMania) sync paradigm.',
+    'consider_p9ms':    'Consider charts close enough to +9ms bias to be "correct" under the In The Groove sync paradigm.',
+    'tolerance':        'If a simfile\'s sync bias lands within a paradigm ± this tolerance, that counts as "close enough".',
+    'fingerprint_ms':   '[ms] Time margin on either side of the beat to analyze.',
+    'window_ms':        '[ms] The spectrogram algorithm\'s moving window parameter.',
+    'step_ms':          '[ms] Controls the spectrogram algorithm\'s overlap parameter, but expressed as a step size.',
+    'kernel_target':    'Choose whether to convolve with the beat digest ("digest") or the spectral accumulator ("accumulator").',
+    'kernel_type':      'Choose a kernel that responds to a rising edge ("rising") or local loudness ("loudest").',
+    'magic_offset_ms':  '[ms] Add a constant value to the time of maximum kernel response. I haven\'t tracked the cause of this down yet. Might be related to attack perception?',
+    'full_spectrogram': 'Analyze the full spectrogram in one go - this will make the program run slower...'
+}
 
+class FloatRange(Container):
+    # Endpoint inclusive.
+    def __init__(self, lo=None, hi=None):
+        self.lo = lo
+        self.hi = hi
+
+    def __iter__(self):
+        return iter([f'>= {self.lo}', f'<= {self.hi}'])
+
+    def __contains__(self, value):
+        if (self.lo is not None) and (value < self.lo):
+            return False
+        if (self.hi is not None) and (value > self.hi):
+            return False
+        return True
 
 class BiasKernel(IntEnum):
     RISING = 0
@@ -180,9 +224,10 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
         'files_title': None     # title stem used for saving plots to files
     }
 
-    kernel_type      = kwargs.get('kernel_type',   BiasKernel.RISING)
-    kernel_target    = kwargs.get('kernel_target', KernelTarget.DIGEST)
-    magic_offset_ms  = kwargs.get('magic_offset',  2.0)                    # Why though
+    kernel_type      = kwargs.get('kernel_type',      BiasKernel.RISING)
+    kernel_target    = kwargs.get('kernel_target',    KernelTarget.DIGEST)
+    magic_offset_ms  = kwargs.get('magic_offset',     2.0)                    # Why though
+    full_spectrogram = kwargs.get('full_spectrogram', False)
 
     simfile_artist   = base_simfile.artisttranslit   or base_simfile.artist
     simfile_title    = base_simfile.titletranslit    or base_simfile.title
@@ -224,35 +269,45 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     nperseg = int(audio.frame_rate * window_ms * 1e-3)              # number of samples per spectrogram segment
     noverlap = nperseg - int(audio.frame_rate * step_ms * 1e-3)     # number of overlap samples
-    frequencies, times, spectrogram = signal.spectrogram(
-        audio_data[:, 0],       # Mono left channel please
-        fs=audio.frame_rate,
-        window='hann',
-        nperseg=nperseg,
-        noverlap=noverlap,
-        detrend=False
-    )
-    splog = np.log2(spectrogram + eps)                              # Calculate in log domain
-
-    if show_intermediate_plots:
-        fig = plt.figure(figsize=(30, 6))
-        plt.pcolormesh(times, frequencies * 1e-3, splog)
-        plt.ylabel('Frequency [kHz]')
-        plt.xlabel('Time [sec]')
-        plt.title(f'Full spectrogram for {simfile_artist} - "{simfile_title}"')
-        plt.show()
-
-    ###################################################################
-    # Use beat timing information to construct a "fingerprint"
-    # of audio spectra around the time each beat takes place
 
     # Recalculate actual timestamps of spectrogram measurements
     actual_step = (nperseg - noverlap) / audio.frame_rate
     fingerprint_size = 2 * int(round(fingerprint_ms * 1e-3 / actual_step))
     fingerprint_times = np.arange(-fingerprint_size // 2, fingerprint_size // 2) * actual_step
+
+    frequencies = None
+    times = None
+    spectrogram = None
+    n_time_taps = ((audio_data.shape[0] - nperseg) / (nperseg - noverlap)).__ceil__()   # ceil(samples / step size)
+    n_freq_taps = 1 + int(audio.frame_rate / 200)                                       # ceil(Nyquist / 100)?
+
+    if full_spectrogram:
+        # print(f'audio: {audio_data.shape}, nperseg: {nperseg}, noverlap: {noverlap}, actual_step: {actual_step}, n_spectral_taps: {n_time_taps}, n_freq_taps: {n_freq_taps}')
+        frequencies, times, spectrogram = signal.spectrogram(
+            audio_data[:, 0],       # Mono left channel please
+            fs=audio.frame_rate,
+            window='hann',
+            nperseg=nperseg,
+            noverlap=noverlap,
+            detrend=False
+        )
+        # print(f'freqs, times, spec: {frequencies.shape}, {times.shape}, {spectrogram.shape}')
+        splog = np.log2(spectrogram + eps)                              # Calculate in log domain
+
+        if show_intermediate_plots:
+            fig = plt.figure(figsize=(30, 6))
+            plt.pcolormesh(times, frequencies * 1e-3, splog)
+            plt.ylabel('Frequency [kHz]')
+            plt.xlabel('Time [sec]')
+            plt.title(f'Full spectrogram for {simfile_artist} - "{simfile_title}"')
+            plt.show()
+
+    ###################################################################
+    # Use beat timing information to construct a "fingerprint"
+    # of audio spectra around the time each beat takes place
     
     # Accumulator over beats, summed in the frequency domain
-    acc = np.zeros((frequencies.size, fingerprint_size))
+    acc = np.zeros((n_freq_taps, fingerprint_size))
 
     # Time-scale digest (frequencies flattened to single value,
     # each beat gets a fingerprint width)
@@ -274,21 +329,43 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
         # Because the spectrogram doesn't "start" until a full window is in view,
         # it has an inherent offset that amounts to half a window.
         spectrogram_offset = window_ms * 0.5e-3
+        t_offset = (t - spectrogram_offset)
 
-        t_s = max(0,              int((t - spectrogram_offset) / actual_step - fingerprint_size * 0.5))
-        t_f = min(times.shape[0], int((t - spectrogram_offset) / actual_step + fingerprint_size * 0.5))
+        t_s = int(t_offset / actual_step - fingerprint_size * 0.5)
+        t_f = int(t_offset / actual_step + fingerprint_size * 0.5)
+
+        t_s = max(0,           t_s)
+        t_f = min(n_time_taps, t_f)
         if (t_f - t_s != fingerprint_size):
             # Not enough data at this beat tbh
             continue
+            
+        if full_spectrogram:
+            sp_snippet = splog[:, t_s:t_f]
+        else:
+            t_sample_s = t_s * (nperseg - noverlap)
+            t_sample_f = t_f * (nperseg - noverlap) + nperseg - 1 
+            # print(f't_sample: {t_sample_s}:{t_sample_f}')
+            
+            frequencies, times, spectrogram = signal.spectrogram(
+                audio_data[t_sample_s:t_sample_f, 0],       # Mono left channel please
+                fs=audio.frame_rate,
+                window='hann',
+                nperseg=nperseg,
+                noverlap=noverlap,
+                detrend=False
+            )
+            # print(f'freqs, times, spec: {frequencies.shape}, {times.shape}, {spectrogram.shape}')
+            sp_snippet = np.log2(spectrogram + eps)         # Calculate in log domain
         
         frequency_weights = 1
         if freq_emphasis is not None:
             # filt(f) = f * e^(-f / emphasis); use None to bypass
             frequency_weights = np.tile(frequencies * np.exp(-frequencies / freq_emphasis), [fingerprint_size, 1]).T
-        spfilt = splog[:, t_s:t_f] * frequency_weights
+        spfilt = sp_snippet * frequency_weights
 
         # Accumulate, and add to digest
-        acc += spfilt
+        acc += spfilt[:n_freq_taps, :]
         digest = np.vstack([digest, np.sum(spfilt, axis=0)])
         
 
@@ -375,6 +452,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
 def batch_process(root_path=None, **kwargs):
     gui_hook = kwargs.get('gui_hook')
+    csv_hook = kwargs.get('csv_hook')
 
     if root_path is None:
         root_path = os.getcwd()
@@ -428,26 +506,18 @@ def batch_process(root_path=None, **kwargs):
                     gui_hook.grid_results.SetReadOnly(i, j)
                 gui_hook.grid_results.ForceRefresh()
                 gui_hook.allow_to_update()
+            if csv_hook is not None:
+                row = {
+                    'path': os.path.relpath(p, root_path),
+                    'slot': '----',
+                    'bias': f'{sync_bias_ms:+0.1f}',
+                    'paradigm': guess_paradigm(sync_bias_ms, **kwargs)
+                }
+                for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:
+                    row[simfile_attr] = base_simfile[simfile_attr.upper()]
+                csv_hook.writerow(row, )
         except Exception as e:
             logging.exception(e)
 
     return fingerprints
-
-
-def process_pack(pack_dir):
-    plot_dir = os.path.join(pack_dir, '__bias-check')
-
-    sync_bias_map = {}
-    for d in os.listdir(pack_dir):
-        d_full = os.path.join(pack_dir, d)
-        if os.path.isdir(d_full):
-            try:
-                sync_bias = check_sync_bias(d_full, report_path=plot_dir)
-                if sync_bias is not None:
-                    sync_bias_map[d] = sync_bias
-                    logging.info(f'{d:>50s}: derived sync bias = {sync_bias:+0.3f} ({guess_paradigm(sync_bias)})')
-            except Exception as e:
-                logging.exception(e)
-
-    return sync_bias_map
-
+    

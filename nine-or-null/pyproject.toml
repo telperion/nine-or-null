@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "nine_or_null"}]
 
 [tool.poetry.dependencies]
-python = ">=3.8,<3.12"
+python = ">=3.9,<3.12"
 numpy = "^1.24.2"
 pydub = "^0.25.1"
 matplotlib = "^3.7.1"
