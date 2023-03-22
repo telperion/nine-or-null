@@ -15,7 +15,7 @@ import wx
 import wx.adv
 import wx.grid
 
-from . import batch_process, guess_paradigm, plot_fingerprint, _VERSION, _CSV_FIELDNAMES
+from . import batch_process, guess_paradigm, plot_fingerprint, timestamp, _VERSION, _CSV_FIELDNAMES
 
 class AboutWithLinks(wx.Dialog):
     def __init__(self, *args, **kwargs):
@@ -153,10 +153,10 @@ class NineOrNull(wx.Frame):
         self.label_fingerprint      = wx.StaticText(    self.panel_fingerprint, label='Audio fingerprint')
         self.label_fingerprint.SetFont(self.label_fingerprint.GetFont().MakeUnderlined())
         self.label_fingerprint_size = wx.StaticText(    self.panel_fingerprint, label='Fingerprint size (ms): ±')
-        self.spin_fingerprint_size  = wx.SpinCtrl(      self.panel_fingerprint, style=wx.SP_ARROW_KEYS, min=30, max=100, initial=50)
+        self.spin_fingerprint_size  = wx.SpinCtrl(      self.panel_fingerprint, style=wx.SP_ARROW_KEYS, min=20, max=100, initial=50)
         self.spin_fingerprint_size.SetToolTip(wx.ToolTip('Time margin on either side of the beat to analyze.'))
         self.label_window_size      = wx.StaticText(    self.panel_fingerprint, label='Spectral window (ms): ±')
-        self.spin_window_size       = wx.SpinCtrl(      self.panel_fingerprint, style=wx.SP_ARROW_KEYS, min=5, max=20, initial=10)
+        self.spin_window_size       = wx.SpinCtrl(      self.panel_fingerprint, style=wx.SP_ARROW_KEYS, min=2, max=20, initial=10)
         self.spin_window_size.SetToolTip(wx.ToolTip('The spectrogram algorithm\'s moving window parameter.'))
         self.label_step_size        = wx.StaticText(    self.panel_fingerprint, label='Spectral step (ms): ±')
         self.spin_step_size         = wx.SpinCtrlDouble(self.panel_fingerprint, style=wx.SP_ARROW_KEYS, min=0.05, max=1.0, initial=0.2, inc=0.05)
@@ -188,7 +188,7 @@ class NineOrNull(wx.Frame):
         self.combo_kernel_type      = wx.ComboBox(      self.panel_attack, style=wx.CB_DROPDOWN | wx.CB_READONLY, value='Rising edge', choices=['Rising edge', 'Local loudness'])
         self.combo_kernel_type.SetToolTip(wx.ToolTip('Choose a kernel that responds to a rising edge or local loudness.'))
         self.label_magic_offset     = wx.StaticText(    self.panel_attack, label='Magic offset (ms): ±')
-        self.spin_magic_offset      = wx.SpinCtrlDouble(self.panel_attack, style=wx.SP_ARROW_KEYS, min=-5.0, max=5.0, initial=2.0, inc=0.1)
+        self.spin_magic_offset      = wx.SpinCtrlDouble(self.panel_attack, style=wx.SP_ARROW_KEYS, min=-5.0, max=5.0, initial=0.0, inc=0.1)
         self.spin_magic_offset.SetToolTip(wx.ToolTip('Add a constant value to the time of maximum kernel response. I haven\'t tracked the cause of this down yet. Might be related to attack perception?'))
         self.spin_magic_offset.SetDigits(1)
         self.spin_magic_offset.Disable()
@@ -505,7 +505,8 @@ class NineOrNull(wx.Frame):
         # Set up logging
         logging.getLogger().handlers.clear()
 
-        log_path = os.path.join(params['report_path'], 'nine-or-null.log')
+        log_stamp = timestamp()
+        log_path = os.path.join(params['report_path'], f'nine-or-null-{log_stamp}.log')
         log_fmt = logging.Formatter(
             '[%(asctime)s.%(msecs)03d] %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -519,7 +520,7 @@ class NineOrNull(wx.Frame):
         for handler in logging.getLogger().handlers:
             handler.setFormatter(log_fmt)
 
-        csv_path = os.path.join(params['report_path'], 'nine-or-null.csv')
+        csv_path = os.path.join(params['report_path'], f'nine-or-null-{log_stamp}.csv')
 
         # Recall parameters.
         header_str = f'+9ms or Null? v{_VERSION} (GUI)'
@@ -535,7 +536,7 @@ class NineOrNull(wx.Frame):
         self.entry_p9ms.SetValue(   '----')
         self.entry_unknown.SetValue('----')
 
-        with open(csv_path, 'w', newline='') as csv_file:
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=_CSV_FIELDNAMES, extrasaction='ignore')
             writer.writeheader()
 

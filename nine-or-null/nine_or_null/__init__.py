@@ -1,4 +1,4 @@
-_VERSION = '0.4.1'
+_VERSION = '0.4.2'
 
 from collections.abc import Container
 import csv
@@ -73,6 +73,10 @@ class KernelTarget(IntEnum):
     ACCUMULATOR = 1
 
 
+def timestamp():
+    return dt.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
+
+
 def slugify(value, allow_unicode=False):
     """
     https://stackoverflow.com/questions/295135/turn-a-string-into-a-valid-filename
@@ -119,7 +123,7 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     post_kernel = fingerprint['post_kernel']
     plot_title = fingerprint['plots_title']
     fingerprint_ms = kwargs.get('fingerprint_ms', 50)
-    magic_offset_ms = kwargs.get('magic_offset', 2.0)
+    magic_offset_ms = kwargs.get('magic_offset_ms', 0.0)
     kernel_target = kwargs.get('kernel_target', KernelTarget.DIGEST)
     hide_yticks = kwargs.get('hide_yticks', False)
 
@@ -267,19 +271,23 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     freq_emphasis   = kwargs.get('freq_emphasis', 3000)     # filt(f) = f * e^(-f / emphasis); use None to bypass
     eps = 1e-9      # Epsilon for logarithms
 
-    nperseg = int(audio.frame_rate * window_ms * 1e-3)              # number of samples per spectrogram segment
-    noverlap = nperseg - int(audio.frame_rate * step_ms * 1e-3)     # number of overlap samples
+    nperseg = int(audio.frame_rate * window_ms * 1e-3)      # number of samples per spectrogram segment
+    nstep = int(audio.frame_rate * step_ms * 1e-3)          # number of samples per spectrogram step
+    noverlap = nperseg - nstep                              # number of overlap samples
 
     # Recalculate actual timestamps of spectrogram measurements
-    actual_step = (nperseg - noverlap) / audio.frame_rate
+    actual_step = nstep / audio.frame_rate
     fingerprint_size = 2 * int(round(fingerprint_ms * 1e-3 / actual_step))
-    fingerprint_times = np.arange(-fingerprint_size // 2, fingerprint_size // 2) * actual_step
 
     frequencies = None
     times = None
     spectrogram = None
-    n_time_taps = ((audio_data.shape[0] - nperseg) / (nperseg - noverlap)).__ceil__()   # ceil(samples / step size)
-    n_freq_taps = 1 + int(audio.frame_rate / 200)                                       # ceil(Nyquist / 100)?
+    spectrogram_offset = (0.5 * nperseg / nstep)
+    # print(spectrogram_offset * actual_step)
+    n_time_taps = ((audio_data.shape[0] - nperseg) / nstep).__ceil__()   # ceil(samples / step size)
+    n_freq_taps = 1 + nperseg // 2                                       # Nyquist of the spectrogram segment (nperseg)
+
+    # print(fingerprint_size)
 
     if full_spectrogram:
         # print(f'audio: {audio_data.shape}, nperseg: {nperseg}, noverlap: {noverlap}, actual_step: {actual_step}, n_spectral_taps: {n_time_taps}, n_freq_taps: {n_freq_taps}')
@@ -291,6 +299,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
             noverlap=noverlap,
             detrend=False
         )
+        # print(times[:10])
         # print(f'freqs, times, spec: {frequencies.shape}, {times.shape}, {spectrogram.shape}')
         splog = np.log2(spectrogram + eps)                              # Calculate in log domain
 
@@ -328,11 +337,11 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
         # Because the spectrogram doesn't "start" until a full window is in view,
         # it has an inherent offset that amounts to half a window.
-        spectrogram_offset = window_ms * 0.5e-3
-        t_offset = (t - spectrogram_offset)
+        # spectrogram_offset = window_ms * 0.5e-3
+        # t_offset = (t - spectrogram_offset)
 
-        t_s = int(t_offset / actual_step - fingerprint_size * 0.5)
-        t_f = int(t_offset / actual_step + fingerprint_size * 0.5)
+        t_s = int(round(t / actual_step - spectrogram_offset - fingerprint_size * 0.5))
+        t_f = int(round(t / actual_step - spectrogram_offset + fingerprint_size * 0.5))
 
         t_s = max(0,           t_s)
         t_f = min(n_time_taps, t_f)
@@ -343,8 +352,8 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
         if full_spectrogram:
             sp_snippet = splog[:, t_s:t_f]
         else:
-            t_sample_s = t_s * (nperseg - noverlap)
-            t_sample_f = t_f * (nperseg - noverlap) + nperseg - 1 
+            t_sample_s = t_s * nstep
+            t_sample_f = t_f * nstep + nperseg - 1 
             # print(f't_sample: {t_sample_s}:{t_sample_f}')
             
             frequencies, times, spectrogram = signal.spectrogram(
@@ -390,6 +399,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
             [1, 3, 10, 30, 0, -30, -10, -3, -1],
             [1, 3, 10, 30, 0, -30, -10, -3, -1]
         ])
+    edge_discard = time_edge_kernel.shape[1] // 2
 
     if kernel_target == KernelTarget.ACCUMULATOR:
         post_kernel = signal.convolve2d(acc,    time_edge_kernel, mode='same', boundary='wrap')
@@ -398,11 +408,10 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     
     # Flatten convolved fingerprint to a value that only depends on time
     post_kernel_flat = np.sum(post_kernel, axis=0)
-    fingerprint_times = np.arange(-fingerprint_size // 2, fingerprint_size // 2) * actual_step
+    fingerprint_times = (np.arange(-fingerprint_size // 2, fingerprint_size // 2) + edge_discard) * actual_step
     fingerprint_times_ms = fingerprint_times * 1e3
 
     # Choose the highest response to the convolution as the downbeat attack
-    edge_discard = time_edge_kernel.shape[1] // 2
     sync_bias_ms = fingerprint_times_ms[np.argmax(post_kernel_flat[edge_discard:-edge_discard]) + edge_discard] + magic_offset_ms
     probable_bias = guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)
     # print(f'Sync bias: {sync_bias:0.3f} ({probable_bias})')
@@ -510,7 +519,7 @@ def batch_process(root_path=None, **kwargs):
                 row = {
                     'path': os.path.relpath(p, root_path),
                     'slot': '----',
-                    'bias': f'{sync_bias_ms:+0.1f}',
+                    'bias': f'{sync_bias_ms:0.3f}',
                     'paradigm': guess_paradigm(sync_bias_ms, **kwargs)
                 }
                 for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:

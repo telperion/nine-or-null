@@ -6,7 +6,7 @@ import sys
 import logging
 import textwrap
 
-from . import FloatRange, BiasKernel, KernelTarget, batch_process, guess_paradigm, _VERSION, _CSV_FIELDNAMES, _PARAMETERS
+from . import FloatRange, BiasKernel, KernelTarget, batch_process, guess_paradigm, timestamp, _VERSION, _CSV_FIELDNAMES, _PARAMETERS
 from .gui import start_gui
 
 def start_cli():
@@ -77,7 +77,7 @@ def start_cli():
         help=_PARAMETERS['magic_offset_ms'],
         dest='magic_offset_ms',
         choices=FloatRange(-5.0, 5.0),
-        default=2.0,
+        default=0.0,
         type=float
     )
     parser.add_argument('--kernel-target',
@@ -128,7 +128,8 @@ def start_cli():
             print(f"Report directory exists: {report_path}")
 
         # Set up logging
-        log_path = os.path.join(report_path, 'nine-or-null.log')
+        log_stamp = timestamp()
+        log_path = os.path.join(report_path, f'nine-or-null-{log_stamp}.log')
         log_fmt = logging.Formatter(
             '[%(asctime)s.%(msecs)03d] %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
@@ -142,7 +143,7 @@ def start_cli():
         for handler in logging.getLogger().handlers:
             handler.setFormatter(log_fmt)
 
-        csv_path = os.path.join(report_path, 'nine-or-null.csv')
+        csv_path = os.path.join(report_path, f'nine-or-null-{log_stamp}.csv')
 
 
         # Recall parameters.
@@ -152,7 +153,7 @@ def start_cli():
         for k, v in params.items():
             logging.info(f'\t{k} = {v}')
 
-        with open(csv_path, 'w', newline='') as csv_file:
+        with open(csv_path, 'w', newline='', encoding='utf-8') as csv_file:
             writer = csv.DictWriter(csv_file, fieldnames=_CSV_FIELDNAMES, extrasaction='ignore')
             writer.writeheader()
             params['csv_hook'] = writer
