@@ -62,7 +62,7 @@ def start_cli():
     parser.add_argument('-w', '--window',
         help=_PARAMETERS['window_ms'],
         dest='window_ms',
-        choices=FloatRange(2, 10),
+        choices=FloatRange(2, 20),
         default=10,
         type=float
     )

@@ -1,4 +1,4 @@
-_VERSION = '0.4.2'
+_VERSION = '0.4.3'
 
 from collections.abc import Container
 import csv
@@ -7,6 +7,7 @@ from enum import IntEnum
 import logging
 import os
 import re
+import sys
 import unicodedata
 
 import numpy as np
@@ -22,15 +23,22 @@ _NINEORNULL_NULL = 0
 _NINEORNULL_P9MS = 9
 _CSV_FIELDNAMES = [
     'path',
+    'slot',
+    'bias',
+    'paradigm',
+    'timestamp',
+    'fingerprint_ms',
+    'window_ms',
+    'step_ms',
+    'kernel_type',
+    'kernel_target',
+    'sample_rate',
     'title',
     'titletranslit',
     'subtitle',
     'subtitletranslit',
     'artist',
     'artisttranslit',
-    'slot',
-    'bias',
-    'paradigm'
 ]
 _PARAMETERS = {
     # Default parameters.
@@ -72,6 +80,22 @@ class KernelTarget(IntEnum):
     DIGEST = 0
     ACCUMULATOR = 1
 
+
+_PARAM_DEFAULTS = {
+    # Default parameters.
+    'root_path':        None,
+    'report_path':      None,
+    'consider_null':    True,
+    'consider_p9ms':    True,
+    'tolerance':        3.0,
+    'fingerprint_ms':   50,
+    'window_ms':        10,
+    'step_ms':          0.2,
+    'kernel_target':    KernelTarget.DIGEST,
+    'kernel_type':      BiasKernel.RISING,
+    'magic_offset_ms':  0.0,
+    'full_spectrogram': False
+}
 
 def timestamp():
     return dt.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
@@ -230,7 +254,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     kernel_type      = kwargs.get('kernel_type',      BiasKernel.RISING)
     kernel_target    = kwargs.get('kernel_target',    KernelTarget.DIGEST)
-    magic_offset_ms  = kwargs.get('magic_offset',     2.0)                    # Why though
+    magic_offset_ms  = kwargs.get('magic_offset_ms',  0.0)                    # Why though
     full_spectrogram = kwargs.get('full_spectrogram', False)
 
     simfile_artist   = base_simfile.artisttranslit   or base_simfile.artist
@@ -282,10 +306,11 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     frequencies = None
     times = None
     spectrogram = None
-    spectrogram_offset = (0.5 * nperseg / nstep)
+    window_size = nperseg / nstep
+    spectrogram_offset = (np.sqrt(0.5) * window_size)                   # trying to figure out why this isn't half a window...smh
     # print(spectrogram_offset * actual_step)
-    n_time_taps = ((audio_data.shape[0] - nperseg) / nstep).__ceil__()   # ceil(samples / step size)
-    n_freq_taps = 1 + nperseg // 2                                       # Nyquist of the spectrogram segment (nperseg)
+    n_time_taps = ((audio_data.shape[0] - nperseg) / nstep).__ceil__()  # ceil(samples / step size)
+    n_freq_taps = 1 + nperseg // 2                                      # Nyquist of the spectrogram segment (nperseg)
 
     # print(fingerprint_size)
 
@@ -342,6 +367,8 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
         t_s = int(round(t / actual_step - spectrogram_offset - fingerprint_size * 0.5))
         t_f = int(round(t / actual_step - spectrogram_offset + fingerprint_size * 0.5))
+        if full_spectrogram:
+            print(f'{t_s}~{t_f}: {times[t_s]:0.6f}~{times[t_f]:0.6f} -> {(times[t_f]+times[t_s])*0.5:0.6f} vs. {t:0.6f}')
 
         t_s = max(0,           t_s)
         t_f = min(n_time_taps, t_f)
@@ -408,7 +435,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     
     # Flatten convolved fingerprint to a value that only depends on time
     post_kernel_flat = np.sum(post_kernel, axis=0)
-    fingerprint_times = (np.arange(-fingerprint_size // 2, fingerprint_size // 2) + edge_discard) * actual_step
+    fingerprint_times = np.arange(-fingerprint_size // 2, fingerprint_size // 2) * actual_step
     fingerprint_times_ms = fingerprint_times * 1e3
 
     # Choose the highest response to the convolution as the downbeat attack
@@ -418,6 +445,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     full_title = get_full_title(base_simfile)
 
+    fingerprint['sample_rate'] = audio.frame_rate
     fingerprint['beat_digest'] = digest
     fingerprint['freq_domain'] = acc
     fingerprint['post_kernel'] = post_kernel
@@ -457,6 +485,54 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     # Done!
     return fingerprint
+
+
+def check_paths(params):
+    # Verify existence of root path
+    root_path = params['root_path']
+    if not os.path.isdir(root_path):
+        raise Exception(f'Root directory doesn\'t exist: {root_path}')
+    else:
+        print(f"Root directory exists: {root_path}")
+
+    # Verify existence of root path
+    report_path = params['report_path']
+    if report_path is None:
+        report_path = os.path.join(root_path, '__bias-check')
+        params['report_path'] = report_path
+    if not os.path.isdir(report_path):
+        try:
+            os.makedirs(report_path)
+            print(f"Report directory created: {report_path}")
+        except Exception as e:
+            raise Exception(f'Report directory can\'t be created: {report_path}')
+    else:
+        print(f"Report directory exists: {report_path}")
+
+
+def setup_logging(report_path: str):
+    # Set up logging
+    log_stamp = timestamp()
+    log_path = os.path.join(report_path, f'nine-or-null-{log_stamp}.log')
+    log_fmt = logging.Formatter(
+        '[%(asctime)s.%(msecs)03d] %(levelname)-8s %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    logging.basicConfig(
+        filename=log_path,
+        encoding='utf-8',
+        level=logging.INFO
+    )
+    logging.getLogger().addHandler(logging.StreamHandler())
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(log_fmt)
+
+    csv_path = os.path.join(report_path, f'nine-or-null-{log_stamp}.csv')
+    return {
+        'log_stamp': log_stamp,
+        'log_path':  log_path,
+        'csv_path':  csv_path
+    }
 
 
 def batch_process(root_path=None, **kwargs):
@@ -520,11 +596,15 @@ def batch_process(root_path=None, **kwargs):
                     'path': os.path.relpath(p, root_path),
                     'slot': '----',
                     'bias': f'{sync_bias_ms:0.3f}',
-                    'paradigm': guess_paradigm(sync_bias_ms, **kwargs)
+                    'paradigm': guess_paradigm(sync_bias_ms, **kwargs),
+                    'timestamp': timestamp(),
+                    'sample_rate': fingerprints[p].get('sample_rate', None)
                 }
                 for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:
                     row[simfile_attr] = base_simfile[simfile_attr.upper()]
-                csv_hook.writerow(row, )
+                for param in ['fingerprint_ms', 'window_ms', 'step_ms', 'kernel_type', 'kernel_target']:
+                    row[param] = kwargs.get(param, None)
+                csv_hook.writerow(row)
         except Exception as e:
             logging.exception(e)
 
