@@ -1,4 +1,4 @@
-_VERSION = '0.4.3'
+_VERSION = '0.4.4'
 
 from collections.abc import Container
 import csv
@@ -307,7 +307,8 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     times = None
     spectrogram = None
     window_size = nperseg / nstep
-    spectrogram_offset = (np.sqrt(0.5) * window_size)                   # trying to figure out why this isn't half a window...smh
+    spectrogram_offset = np.sqrt(0.5) * window_size                     # trying to figure out why this isn't half a window...smh
+    # spectrogram_offset = 0.5 * window_size                              # maybe it should be??
     # print(spectrogram_offset * actual_step)
     n_time_taps = ((audio_data.shape[0] - nperseg) / nstep).__ceil__()  # ceil(samples / step size)
     n_freq_taps = 1 + nperseg // 2                                      # Nyquist of the spectrogram segment (nperseg)
@@ -420,11 +421,11 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     else:   # BiasKernel.RISING
         # Leading edge of attack
         time_edge_kernel = np.array([
-            [1, 3, 10, 30, 0, -30, -10, -3, -1],
-            [1, 3, 10, 30, 0, -30, -10, -3, -1],
-            [1, 3, 10, 30, 0, -30, -10, -3, -1],
-            [1, 3, 10, 30, 0, -30, -10, -3, -1],
-            [1, 3, 10, 30, 0, -30, -10, -3, -1]
+            [1, 1, 0, -1, -1],
+            [1, 1, 0, -1, -1],
+            [1, 1, 0, -1, -1],
+            [1, 1, 0, -1, -1],
+            [1, 1, 0, -1, -1]
         ])
     edge_discard = time_edge_kernel.shape[1] // 2
 
@@ -445,6 +446,14 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
 
     full_title = get_full_title(base_simfile)
 
+    plot_tag_vars = kwargs.get('tag_vars', {}) 
+    if len(plot_tag_vars) == 0:
+        plot_tag = ''
+        plot_tag_filename = ''
+    else:
+        plot_tag = ' (' + ', '.join(f'{k} = {v.format(kwargs.get(k))}' for k, v in plot_tag_vars.items()) + ')'
+        plot_tag_filename = '-' + '-'.join(f'{k}_{v.format(kwargs.get(k))}' for k, v in plot_tag_vars.items())
+
     fingerprint['sample_rate'] = audio.frame_rate
     fingerprint['beat_digest'] = digest
     fingerprint['freq_domain'] = acc
@@ -453,7 +462,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     fingerprint['frequencies'] = frequencies * 1e-3
     fingerprint['time_values'] = fingerprint_times_ms
     fingerprint['bias_result'] = sync_bias_ms
-    fingerprint['plots_title'] = f'Sync fingerprint\n{simfile_artist} - "{full_title}"\nSync bias: {sync_bias_ms:+0.1f} ms ({probable_bias})'
+    fingerprint['plots_title'] = f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"\nSync bias: {sync_bias_ms:+0.1f} ms ({probable_bias})'
     
     sanitized_title = slugify(full_title, allow_unicode=False)
     target_axes = []
@@ -470,7 +479,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
         if show_intermediate_plots:
             fig.show()
         if save_plots:
-            fig.savefig(os.path.join(report_path, f'bias-{v}-{sanitized_title}.png'))
+            fig.savefig(os.path.join(report_path, f'bias-{v}-{sanitized_title}{plot_tag_filename}.png'))
         plt.close(fig)
 
     plot_hook_gui = kwargs.get('plot_hook_gui')

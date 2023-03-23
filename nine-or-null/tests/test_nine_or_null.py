@@ -5,7 +5,7 @@ import sys
 
 import nine_or_null
 
-_TEST_DIR = r"C:\Games\ITGmania\Songs\Sudziosis 5"
+_TEST_DIR = r"C:\Games\ITGmania\Songs\New Year's Stepfile Feast 2022-23"
 
 def test_window_size():
     root_path = _TEST_DIR
@@ -13,8 +13,9 @@ def test_window_size():
     params = {k: v for k, v in nine_or_null._PARAM_DEFAULTS.items()}
     params['root_path'] = root_path
     params['report_path'] = os.path.join(root_path, '__bias-tests')
-    params['fingerprint_ms'] = 30
-    params['step_ms'] = 0.1
+    params['fingerprint_ms'] = 40
+    params['step_ms'] = 0.2
+    params['tag_vars'] = {'window_ms': '{:d}'}
     
     try:
         nine_or_null.check_paths(params)
@@ -22,7 +23,7 @@ def test_window_size():
         sys.exit(sys.exc_info())
     log_info = nine_or_null.setup_logging(params['report_path'])
 
-    for window_ms in [2, 3, 5, 8, 10, 12]:
+    for window_ms in [5, 10, 15, 20]:
         params['window_ms'] = window_ms
 
         # Recall parameters.
