@@ -166,9 +166,9 @@ def start_cli():
         paradigm_count = {}
         for paradigm in ['+9ms', 'null', '????']:
             paradigm_map = {k: v for k, v in fingerprints.items() if guess_paradigm(v['bias_result']) == paradigm}
-            logging.info(f"Files sync'd to {paradigm}: {len(paradigm_map)}")
+            logging.info(f"Charts sync'd to {paradigm}: {len(paradigm_map)}")
             for k, v in paradigm_map.items():
-                logging.info(f"\t{k:>50s}")
+                logging.info(f"\t{k}")
                 logging.info(f"\t\tderived sync bias = {v['bias_result']:+0.1f} ms")
             paradigm_count[paradigm] = len(paradigm_map)
 

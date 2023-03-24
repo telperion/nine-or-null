@@ -1,4 +1,4 @@
-_VERSION = '0.4.4'
+_VERSION = '0.5.0'
 
 from collections.abc import Container
 import csv
@@ -99,6 +99,43 @@ _PARAM_DEFAULTS = {
 
 def timestamp():
     return dt.utcnow().strftime('%Y%m%d-%H%M%S-%f')[:-3]
+
+
+def slot_abbreviation(steps_type, chart_slot, chart_index=0, paradigm='null'):
+    logging.info(steps_type)
+    logging.info(chart_slot)
+    if paradigm == '+9ms':
+        map_style = {
+            'dance-single': 'S',
+            'dance-double': 'D'
+        }
+        map_slot = {
+            'Challenge': 'X',
+            'Hard': 'H',
+            'Medium': 'M',
+            'Easy': 'E',
+            'Beginner': 'N',
+            'Edit': '.'
+        }
+        return map_style.get(steps_type, '?') \
+               + map_slot.get(chart_slot, '?') \
+               + (chart_slot == 'Edit' and f'{chart_index}' or '')
+    else:   # Charts that don't fit a paradigm are probably DDR charts...no shade but
+        map_style = {
+            'dance-single': 'SP',
+            'dance-double': 'DP'
+        }
+        map_slot = {
+            'Challenge': 'C',
+            'Hard': 'E',
+            'Medium': 'D',
+            'Easy': 'B',
+            'Beginner': 'b',
+            'Edit': 'X'
+        }
+        return map_slot.get(chart_slot, '?') \
+               + (chart_slot == 'Edit' and f'{chart_index}' or '') \
+               + map_style.get(steps_type, '?')
 
 
 def slugify(value, allow_unicode=False):
@@ -239,7 +276,7 @@ def get_full_title(base_simfile):
     return f'{simfile_title}{simfile_subtitle and (" " + simfile_subtitle) or ""}'
 
 
-def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
+def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
     fingerprint = {
         'beat_digest': None,    # Beat digest fingerprint (beat index vs. time)
         'freq_domain': None,    # Accumulation in frequency domain (frequency vs. time)
@@ -261,15 +298,13 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     simfile_title    = base_simfile.titletranslit    or base_simfile.title
     simfile_subtitle = base_simfile.subtitletranslit or base_simfile.subtitle
 
-    # Default to first chart
-    if chart is None:
-        chart = base_simfile.charts[0]
-
     # Account for split audio
-    if not hasattr(chart, 'music') or chart.music is None:
-        audio_path = os.path.join(simfile_dir, base_simfile.music)
-    else:
-        audio_path = os.path.join(simfile_dir, chart.music)
+    audio_path = os.path.join(simfile_dir, base_simfile.music)
+    chart = None
+    if chart_index is not None:
+        chart = base_simfile.charts[chart_index]
+        if chart.get('MUSIC') is not None:
+            audio_path = os.path.join(simfile_dir, chart.music)
 
     engine = TimingEngine(TimingData(base_simfile, chart))
 
@@ -454,6 +489,11 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
         plot_tag = ' (' + ', '.join(f'{k} = {v.format(kwargs.get(k))}' for k, v in plot_tag_vars.items()) + ')'
         plot_tag_filename = '-' + '-'.join(f'{k}_{v.format(kwargs.get(k))}' for k, v in plot_tag_vars.items())
 
+    chart_tag = ''
+    if chart is not None:
+        fingerprint['steps_type'] = chart['STEPSTYPE']
+        fingerprint['chart_slot'] = chart['DIFFICULTY']
+        chart_tag = ' ' + slot_abbreviation(chart['STEPSTYPE'], chart['DIFFICULTY'], chart_index=chart_index, paradigm=guess_paradigm(sync_bias_ms, **kwargs))
     fingerprint['sample_rate'] = audio.frame_rate
     fingerprint['beat_digest'] = digest
     fingerprint['freq_domain'] = acc
@@ -462,9 +502,9 @@ def check_sync_bias(simfile_dir, base_simfile, chart=None, report_path=None, sav
     fingerprint['frequencies'] = frequencies * 1e-3
     fingerprint['time_values'] = fingerprint_times_ms
     fingerprint['bias_result'] = sync_bias_ms
-    fingerprint['plots_title'] = f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"\nSync bias: {sync_bias_ms:+0.1f} ms ({probable_bias})'
+    fingerprint['plots_title'] = f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"{chart_tag}\nSync bias: {sync_bias_ms:+0.1f} ms ({probable_bias})'
     
-    sanitized_title = slugify(full_title, allow_unicode=False)
+    sanitized_title = slugify(full_title + chart_tag, allow_unicode=False)
     target_axes = []
     target_figs = []
     for i in range(3):
@@ -584,36 +624,55 @@ def batch_process(root_path=None, **kwargs):
             if gui_hook is not None:
                 gui_hook.SetStatusText(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str}) Checking sync bias on {os.path.relpath(p, root_path)}...')
                 gui_hook.allow_to_update()
+
             base_simfile = simfile.open(test_simfile_path)
-            fingerprints[p] = check_sync_bias(p, base_simfile, chart=None, save_plots=True, show_intermediate_plots=False, **kwargs)
-            sync_bias_ms = fingerprints[p]['bias_result']
-            logging.info(f'\t{p}')
-            logging.info(f'\tderived sync bias = {sync_bias_ms:+0.1f} ms ({guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)})')
-            if gui_hook is not None:
-                gui_hook.grid_results.InsertRows(i, 1)
-                gui_hook.grid_results.SetCellValue(i, 0, os.path.relpath(p, root_path))
-                gui_hook.grid_results.SetCellValue(i, 1, '----')
-                gui_hook.grid_results.SetCellValue(i, 2, f'{sync_bias_ms:+0.1f}')
-                gui_hook.grid_results.SetCellValue(i, 3, guess_paradigm(sync_bias_ms, **kwargs))
-                gui_hook.grid_results.MakeCellVisible(i, 3)
-                for j in range(4):
-                    gui_hook.grid_results.SetReadOnly(i, j)
-                gui_hook.grid_results.ForceRefresh()
-                gui_hook.allow_to_update()
-            if csv_hook is not None:
-                row = {
-                    'path': os.path.relpath(p, root_path),
-                    'slot': '----',
-                    'bias': f'{sync_bias_ms:0.3f}',
-                    'paradigm': guess_paradigm(sync_bias_ms, **kwargs),
-                    'timestamp': timestamp(),
-                    'sample_rate': fingerprints[p].get('sample_rate', None)
-                }
-                for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:
-                    row[simfile_attr] = base_simfile[simfile_attr.upper()]
-                for param in ['fingerprint_ms', 'window_ms', 'step_ms', 'kernel_type', 'kernel_target']:
-                    row[param] = kwargs.get(param, None)
-                csv_hook.writerow(row)
+            # Account for split timing.
+            charts_within = [None]
+            for chart_index, chart in enumerate(base_simfile.charts):
+                if any(k in chart for k in ['OFFSET', 'BPMS', 'STOPS', 'DELAYS', 'WARPS']):
+                    logging.info(f'{base_simfile.title}: {chart_index} ({chart.difficulty}) has split timing')
+                    charts_within.append(chart_index)
+
+            for split_chart in charts_within:
+                fp = check_sync_bias(p, base_simfile, chart_index=split_chart, save_plots=True, show_intermediate_plots=False, **kwargs)
+                sync_bias_ms = fp['bias_result']
+                
+                chart_abbr = '*'
+                if split_chart is not None:
+                    chart = base_simfile.charts[split_chart]
+                    chart_abbr = slot_abbreviation(chart['STEPSTYPE'], chart['DIFFICULTY'], chart_index=split_chart, paradigm=guess_paradigm(sync_bias_ms, **kwargs))
+                    
+                fp_lookup = os.path.join(p, chart_abbr)
+                fingerprints[fp_lookup] = fp
+
+                logging.info(f'\t{fp_lookup}')
+                logging.info(f'\tderived sync bias = {sync_bias_ms:+0.1f} ms ({guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)})')
+                if gui_hook is not None:
+                    row_index = len(fingerprints)-1
+                    gui_hook.grid_results.InsertRows(row_index, 1)
+                    gui_hook.grid_results.SetCellValue(row_index, 0, os.path.relpath(p, root_path))
+                    gui_hook.grid_results.SetCellValue(row_index, 1, chart_abbr)
+                    gui_hook.grid_results.SetCellValue(row_index, 2, f'{sync_bias_ms:+0.1f}')
+                    gui_hook.grid_results.SetCellValue(row_index, 3, guess_paradigm(sync_bias_ms, **kwargs))
+                    gui_hook.grid_results.MakeCellVisible(row_index, 3)
+                    for j in range(4):
+                        gui_hook.grid_results.SetReadOnly(row_index, j)
+                    gui_hook.grid_results.ForceRefresh()
+                    gui_hook.allow_to_update()
+                if csv_hook is not None:
+                    row = {
+                        'path': os.path.relpath(p, root_path),
+                        'slot': chart_abbr,
+                        'bias': f'{sync_bias_ms:0.3f}',
+                        'paradigm': guess_paradigm(sync_bias_ms, **kwargs),
+                        'timestamp': timestamp(),
+                        'sample_rate': fp.get('sample_rate', None)
+                    }
+                    for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:
+                        row[simfile_attr] = base_simfile[simfile_attr.upper()]
+                    for param in ['fingerprint_ms', 'window_ms', 'step_ms', 'kernel_type', 'kernel_target']:
+                        row[param] = kwargs.get(param, None)
+                    csv_hook.writerow(row)
         except Exception as e:
             logging.exception(e)
 

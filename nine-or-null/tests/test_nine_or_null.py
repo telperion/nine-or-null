@@ -5,7 +5,7 @@ import sys
 
 import nine_or_null
 
-_TEST_DIR = r"C:\Games\ITGmania\Songs\New Year's Stepfile Feast 2022-23"
+_TEST_DIR = r"C:\Games\ITGmania\Songs\ephemera v0.2"
 
 def test_window_size():
     root_path = _TEST_DIR
@@ -23,7 +23,7 @@ def test_window_size():
         sys.exit(sys.exc_info())
     log_info = nine_or_null.setup_logging(params['report_path'])
 
-    for window_ms in [5, 10, 15, 20]:
+    for window_ms in [5]: #[5, 10, 15, 20]:
         params['window_ms'] = window_ms
 
         # Recall parameters.
@@ -56,3 +56,8 @@ def test_window_size():
         logging.info('=' * 72)
         logging.info(f'Pack sync paradigm: {paradigm_most[-1]}')
         logging.info('-' * 72)
+
+
+if __name__ == '__main__':
+    test_window_size()
+    
