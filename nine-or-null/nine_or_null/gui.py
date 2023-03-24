@@ -351,7 +351,7 @@ class NineOrNull(wx.Frame):
         )
         self.panel_plot.canvas = FigureCanvas(self.panel_main, -1, self.panel_plot.figure)
         self.panel_plot.canvas.SetMinSize((180, 402))
-        self.panel_plot.canvas.SetToolTip(wx.ToolTip('Double-click on a result row to examine the audio fingerprint.\n(These plots are also stored in the report directory)'))
+        self.panel_plot.canvas.SetToolTip(wx.ToolTip('Double-click on a result row to examine the audio fingerprint.\n(These plots are also stored in the report directory)\n\nTo limit bias adjustment to specific charts, select their cells or rows in the table.'))
         
         # --------------------------------------------------------------
         # Menu and status bar
@@ -554,7 +554,7 @@ class NineOrNull(wx.Frame):
 
         paradigm_count = {}
         for paradigm in ['+9ms', 'null', '????']:
-            paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result']) == paradigm}
+            paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result'], **params) == paradigm}
             logging.info(f"Charts sync'd to {paradigm}: {len(paradigm_map)}")
             for k, v in paradigm_map.items():
                 logging.info(f"\t{k}")
@@ -604,27 +604,71 @@ class NineOrNull(wx.Frame):
 
     def OnConvert9msToNull(self, event):
         logging.info('Conversion from +9ms to null')
+        print([b for b in self.grid_results.GetSelectedBlocks()])
+        affect_rows = []
+        for b in self.grid_results.GetSelectedBlocks():
+            affect_rows += list(range(b.GetTopRow(), b.GetBottomRow()+1))
+        if len(affect_rows) == 0:
+            affect_rows = None
+        print(affect_rows)
         params = self.collect_parameters()
 
         if wx.MessageBox('Are you sure you want to convert all charts with +9ms (In The Groove) bias to null (StepMania)?',
             caption='+9ms or Null?',
             style=wx.YES_NO
             ) == wx.YES:
-            batch_adjust(self.fingerprints, 'null', **params)
+            batch_adjust(self.fingerprints, 'null', gui_hook=self, affect_rows=affect_rows, **params)
         else:
             logging.info('Canceled conversion from +9ms to null')
 
+        paradigm_count = {}
+        for paradigm in ['+9ms', 'null', '????']:
+            paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result'], **params) == paradigm}
+            logging.info(f"Charts sync'd to {paradigm}: {len(paradigm_map)}")
+            for k, v in paradigm_map.items():
+                logging.info(f"\t{k}")
+                logging.info(f"\t\tderived sync bias = {v['bias_result']:+0.1f} ms")
+            paradigm_count[paradigm] = len(paradigm_map)
+
+        if params['consider_null']:
+            self.entry_null.SetValue(f"{paradigm_count['null']}")
+        if params['consider_p9ms']:
+            self.entry_p9ms.SetValue(f"{paradigm_count['+9ms']}")
+        self.entry_unknown.SetValue( f"{paradigm_count['????']}")
+
     def OnConvertNullTo9ms(self, event):
         logging.info('Conversion from null to +9ms')
+        print([b for b in self.grid_results.GetSelectedBlocks()])
+        affect_rows = []
+        for b in self.grid_results.GetSelectedBlocks():
+            affect_rows += list(range(b.GetTopRow(), b.GetBottomRow()+1))
+        if len(affect_rows) == 0:
+            affect_rows = None
+        print(affect_rows)
         params = self.collect_parameters()
 
         if wx.MessageBox('Are you sure you want to convert all charts with null (StepMania) bias to +9ms (In The Groove)?',
             caption='+9ms or Null?',
             style=wx.YES_NO
             ) == wx.YES:
-            batch_adjust(self.fingerprints, '+9ms', **params)
+            batch_adjust(self.fingerprints, '+9ms', gui_hook=self, affect_rows=affect_rows, **params)
         else:
             logging.info('Canceled conversion from null to +9ms')
+
+        paradigm_count = {}
+        for paradigm in ['+9ms', 'null', '????']:
+            paradigm_map = {k: v for k, v in self.fingerprints.items() if guess_paradigm(v['bias_result'], **params) == paradigm}
+            logging.info(f"Charts sync'd to {paradigm}: {len(paradigm_map)}")
+            for k, v in paradigm_map.items():
+                logging.info(f"\t{k}")
+                logging.info(f"\t\tderived sync bias = {v['bias_result']:+0.1f} ms")
+            paradigm_count[paradigm] = len(paradigm_map)
+
+        if params['consider_null']:
+            self.entry_null.SetValue(f"{paradigm_count['null']}")
+        if params['consider_p9ms']:
+            self.entry_p9ms.SetValue(f"{paradigm_count['+9ms']}")
+        self.entry_unknown.SetValue( f"{paradigm_count['????']}")
     
     def OnExit(self, event):
         self.Close(True)

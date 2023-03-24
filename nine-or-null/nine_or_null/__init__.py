@@ -1,4 +1,4 @@
-_VERSION = '0.6.0'
+_VERSION = '0.7.0'
 
 from collections.abc import Container
 import csv
@@ -53,7 +53,8 @@ _PARAMETERS = {
     'kernel_target':    'Choose whether to convolve with the beat digest ("digest") or the spectral accumulator ("accumulator").',
     'kernel_type':      'Choose a kernel that responds to a rising edge ("rising") or local loudness ("loudest").',
     'magic_offset_ms':  '[ms] Add a constant value to the time of maximum kernel response. I haven\'t tracked the cause of this down yet. Might be related to attack perception?',
-    'full_spectrogram': 'Analyze the full spectrogram in one go - this will make the program run slower...'
+    'full_spectrogram': 'Analyze the full spectrogram in one go - this will make the program run slower...',
+    'to_paradigm':      'Choose a target paradigm for the pack unbiasing step. This will modify your simfiles!'
 }
 
 class FloatRange(Container):
@@ -94,7 +95,8 @@ _PARAM_DEFAULTS = {
     'kernel_target':    KernelTarget.DIGEST,
     'kernel_type':      BiasKernel.RISING,
     'magic_offset_ms':  0.0,
-    'full_spectrogram': False
+    'full_spectrogram': False,
+    'to_paradigm':      None
 }
 
 def timestamp():
@@ -735,8 +737,12 @@ def batch_adjust(fingerprints, target_bias, **params):
         raise Exception(f'What paradigm does "{target_bias}" represent?')
 
     logging.info(f'Converting charts with +9ms (In The Groove) bias to null (StepMania)...')
-    for k, v in fingerprints.items():
-        if guess_paradigm(v['bias_result'], **params) == source_bias:
+    affect_rows = params.get('affect_rows')
+    for i, k in enumerate(fingerprints):
+        if affect_rows is not None and i not in affect_rows:
+            continue
+        current_paradigm = fingerprints[k].get('bias_adjust', guess_paradigm(fingerprints[k]['bias_result'], **params))
+        if current_paradigm == source_bias:
             logging.info(f'\t{k}')
             # Open simfile
             p, abbr = os.path.split(k)
@@ -756,15 +762,28 @@ def batch_adjust(fingerprints, target_bias, **params):
             ) as sm:
                 try:
                     if abbr == '*':
-                        logging.info(f'\t{float(sm.offset):6.3f} -> {float(sm.offset) + bias_shift:6.3f}: {k}')
-                        sm.offset = f'{float(sm.offset) + bias_shift:0.3f}'
+                        new_offset = float(sm.offset) + bias_shift
+                        logging.info(f'\t{float(sm.offset):6.3f} -> {new_offset:6.3f}: {k}')
+                        sm.offset = f'{new_offset:0.3f}'
                     else:
                         steps_type, chart_slot, chart_index = slot_expansion(abbr)
                         if chart_index is None:
                             chart_index = [i for i, c in enumerate(sm.charts) if c['STEPSTYPE'] == steps_type and c['DIFFICULTY'] == chart_slot][0]
                         prev_offset = float(sm.charts[chart_index]['OFFSET'])
-                        logging.info(f'\t{prev_offset:6.3f} -> {prev_offset + bias_shift:6.3f}: {k}')
-                        sm.charts[chart_index]['OFFSET'] = f'{prev_offset + bias_shift:0.3f}'
+                        new_offset = prev_offset + bias_shift
+                        logging.info(f'\t{prev_offset:6.3f} -> {new_offset:6.3f}: {k}')
+                        sm.charts[chart_index]['OFFSET'] = f'{new_offset:0.3f}'
+                    fingerprints[k]['bias_result'] += bias_shift * 1e3
+                    fingerprints[k]['bias_adjust'] = target_bias
+                    
+                    gui_hook = params.get('gui_hook')
+                    if gui_hook is not None:
+                        font_cell = gui_hook.grid_results.GetCellFont(i, 0)
+                        gui_hook.grid_results.SetCellValue(i, 2, f"{fingerprints[k]['bias_result']:+0.1f}")
+                        gui_hook.grid_results.SetCellValue(i, 3, target_bias)
+                        for j in range(gui_hook.grid_results.GetNumberCols()):
+                            gui_hook.grid_results.SetCellFont(i, j, font_cell.MakeBold())
+
 
                 except Exception as e:
                     raise Exception(f'Something happened while adjusting bias for {test_simfile_path}') from e

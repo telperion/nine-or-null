@@ -6,7 +6,7 @@ import sys
 import logging
 import textwrap
 
-from . import FloatRange, BiasKernel, KernelTarget, batch_process, guess_paradigm, timestamp, _VERSION, _CSV_FIELDNAMES, _PARAMETERS
+from . import FloatRange, BiasKernel, KernelTarget, batch_process, batch_adjust, guess_paradigm, timestamp, _VERSION, _CSV_FIELDNAMES, _PARAMETERS
 from .gui import start_gui
 
 def start_cli():
@@ -37,6 +37,11 @@ def start_cli():
     )
     parser.add_argument('-r', '--report_path',
         help=_PARAMETERS['report_path']
+    )
+    parser.add_argument('-p', '--to-paradigm',
+        required=False,
+        choices=['null', '+9ms'],
+        help=_PARAMETERS['to_paradigm'],
     )
     parser.add_argument('--consider_null', '--cn',
         help=_PARAMETERS['consider_null'],
@@ -159,6 +164,13 @@ def start_cli():
             params['csv_hook'] = writer
 
             fingerprints = batch_process(**params)
+
+        if params['to_paradigm'] is not None:
+            logging.info(f"Performing unbiasing step (target paradigm: {params['to_paradigm']})...")
+            batch_adjust(fingerprints, params['to_paradigm'], **params)
+            logging.info(f"Performing unbiasing step (target paradigm: {params['to_paradigm']})...Done!")
+        else:
+            logging.info('Not performing unbiasing step')
 
         logging.info('-' * 72)
         logging.info(f"Sync bias report: {len(fingerprints)} fingerprints processed in {root_path}")
