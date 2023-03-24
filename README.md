@@ -37,10 +37,10 @@ You have a couple options:
 - Download the executable (made with PyInstaller).
 
 ### Command-line interface (CLI)
-It's not as configurable as the GUI yet but that's coming soon. For now you can just call the main routine of the `nine_or_null` package, and pass it the full path to the pack as a command-line argument. If you call it without a path, it'll invoke the GUI.
+It's not as configurable as the GUI yet but that's coming soon. For now you can just call the main routine of the `nine_or_null` package, and pass it the full path to the pack as a command-line argument. If you call it without a path, it'll invoke the GUI. (Use `-h` for more info about what options are available.)
 
 ### Graphical user interface (GUI)
-![Screenshot of +9ms or Null v0.2.0](doc/nine-or-null-v0.2.0.png)
+![Screenshot of +9ms or Null v0.7.0](doc/nine-or-null-v0.7.0.png)
 
 The intended workflow:
 1. Select the path to the pack or simfile you want to check using the directory button in the upper-right corner (or manually enter in the text box next to it).
@@ -50,15 +50,17 @@ The intended workflow:
 1. Watch the status bar, results table, and sync fingerprint plots for updates.
     - From top to bottom, the plots represent the frequency domain accumulator, the beat digest, and the convolved fingerprint.
     - The red line indicates where the maximum kernel response lies, and thus the sync bias of this simfile. The white line is the kernel response for the whole fingerprint vs. local time.
-1. Once the status bar indicates the job is "Done!", the number of paradigm-adherent simfiles will appear above the results table.
-1. Feel free to "View logs", "View plots", or double-click on individual simfiles in the results table to reload plots in the neighboring pane.
-1. In the future, the two arrows above the paradigm counts will allow you to batch adjust the sync bias on simfiles (either from +9ms to null, or vice versa). ***Again, not a millisecond-accurate sync utility! It's only offering to add or subtract 9ms.***
+    - If split timing is discovered, the "slot" column in the table will also have a value, indicating whether the entry represents the base simfile (*) or a specific chart (SX, CSP, etc.).
+1. Once the status bar indicates the job is "Done!", the number of paradigm-adherent simfiles or charts will appear above the results table.
+1. Feel free to "View logs", "View plots", or double-click on individual entries in the results table to reload plots in the neighboring pane.
+1. Use the two arrows above the paradigm counts to batch adjust the sync bias on simfiles or charts (either from +9ms to null, or vice versa). ***Again, not a millisecond-accurate sync utility! It's only offering to add or subtract 9ms.***
+    - If you don't want to adjust *all* the matching charts, you can (multi-)select rows in the results table while in GUI mode, and the bias adjustment will only apply to the subset of those that aren't already sync'd to the desired paradigm.
 
 (If your computer starts really chugging during the bias check, bump the "Spectral step" up or the "Spectral window" down - both of these sacrifice a bit of spectrogram precision but the results are still generally good.)
 
 ## Future plans
-- Batch adjust the sync bias on simfiles (either from +9ms to null, or vice versa)
-- Handle split timing properly when it's present
+- Code cleanup
+- Performance optimization (need to move to MVC model :weary:)
 - If a straight vertical line "fit" can identify bias, then a line fit with both local time and beat index dependence could also identify sync drift...hmm...
 
 
