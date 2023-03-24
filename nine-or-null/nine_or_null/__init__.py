@@ -1,4 +1,4 @@
-_VERSION = '0.5.0'
+_VERSION = '0.6.0'
 
 from collections.abc import Container
 import csv
@@ -136,6 +136,51 @@ def slot_abbreviation(steps_type, chart_slot, chart_index=0, paradigm='null'):
         return map_slot.get(chart_slot, '?') \
                + (chart_slot == 'Edit' and f'{chart_index}' or '') \
                + map_style.get(steps_type, '?')
+
+
+def slot_expansion(abbr):
+    if abbr[-2:] in ['SP', 'DP']:
+        map_style = {
+            'SP': 'dance-single',
+            'DP': 'dance-double'
+        }
+        map_slot = {
+            'C': 'Challenge',
+            'E': 'Hard',
+            'D': 'Medium',
+            'B': 'Easy',
+            'b': 'Beginner',
+            'X': 'Edit'
+        }
+        steps_type = map_style[abbr[-2:]]
+        chart_slot = map_slot[abbr[0]]
+        if len(abbr) > 3:
+            chart_index = int(abbr[1:-2])
+        else:
+            chart_index = None
+    elif abbr[0] in ['S', 'D']:
+        map_style = {
+            'S': 'dance-single',
+            'D': 'dance-double'
+        }
+        map_slot = {
+            'X': 'Challenge',
+            'H': 'Hard',
+            'M': 'Medium',
+            'E': 'Easy',
+            'N': 'Beginner',
+            '.': 'Edit'
+        }
+        steps_type = map_style[abbr[0]]
+        chart_slot = map_slot[abbr[1]]
+        if len(abbr) > 2:
+            chart_index = int(abbr[2:])
+        else:
+            chart_index = None
+    else:
+        raise Exception(f'Couldn\'t deduce meaning of slot abbreviation "{abbr}"')
+
+    return steps_type, chart_slot, chart_index
 
 
 def slugify(value, allow_unicode=False):
@@ -669,7 +714,7 @@ def batch_process(root_path=None, **kwargs):
                         'sample_rate': fp.get('sample_rate', None)
                     }
                     for simfile_attr in ['title', 'titletranslit', 'subtitle', 'subtitletranslit', 'artist', 'artisttranslit', 'credit']:
-                        row[simfile_attr] = base_simfile[simfile_attr.upper()]
+                        row[simfile_attr] = base_simfile.get(simfile_attr.upper(), '')
                     for param in ['fingerprint_ms', 'window_ms', 'step_ms', 'kernel_type', 'kernel_target']:
                         row[param] = kwargs.get(param, None)
                     csv_hook.writerow(row)
@@ -678,3 +723,51 @@ def batch_process(root_path=None, **kwargs):
 
     return fingerprints
     
+
+def batch_adjust(fingerprints, target_bias, **params):
+    if target_bias == '+9ms':
+        source_bias = 'null'
+        bias_shift = +0.009
+    elif target_bias == 'null':
+        source_bias = '+9ms'
+        bias_shift = -0.009
+    else:
+        raise Exception(f'What paradigm does "{target_bias}" represent?')
+
+    logging.info(f'Converting charts with +9ms (In The Groove) bias to null (StepMania)...')
+    for k, v in fingerprints.items():
+        if guess_paradigm(v['bias_result'], **params) == source_bias:
+            logging.info(f'\t{k}')
+            # Open simfile
+            p, abbr = os.path.split(k)
+            test_simfile_path = None
+            for f in os.listdir(p):
+                if os.path.splitext(f)[1] in ['.ssc', '.sm']:
+                    if (test_simfile_path is None) or (os.path.splitext(test_simfile_path)[1] == '.sm'):
+                        test_simfile_path = os.path.join(p, f)
+            if test_simfile_path is None:
+                # How did this happen!
+                logging.info(f'What? Couldn\'t find a simfile at "{p}"')
+                continue
+
+            with simfile.mutate(
+                test_simfile_path,
+                backup_filename=test_simfile_path + ".oldsync"
+            ) as sm:
+                try:
+                    if abbr == '*':
+                        logging.info(f'\t{float(sm.offset):6.3f} -> {float(sm.offset) + bias_shift:6.3f}: {k}')
+                        sm.offset = f'{float(sm.offset) + bias_shift:0.3f}'
+                    else:
+                        steps_type, chart_slot, chart_index = slot_expansion(abbr)
+                        if chart_index is None:
+                            chart_index = [i for i, c in enumerate(sm.charts) if c['STEPSTYPE'] == steps_type and c['DIFFICULTY'] == chart_slot][0]
+                        prev_offset = float(sm.charts[chart_index]['OFFSET'])
+                        logging.info(f'\t{prev_offset:6.3f} -> {prev_offset + bias_shift:6.3f}: {k}')
+                        sm.charts[chart_index]['OFFSET'] = f'{prev_offset + bias_shift:0.3f}'
+
+                except Exception as e:
+                    raise Exception(f'Something happened while adjusting bias for {test_simfile_path}') from e
+    
+    logging.info(f'Converting charts with +9ms (In The Groove) bias to null (StepMania)...Done!')
+            

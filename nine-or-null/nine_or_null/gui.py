@@ -15,7 +15,7 @@ import wx
 import wx.adv
 import wx.grid
 
-from . import batch_process, guess_paradigm, plot_fingerprint, timestamp, _VERSION, _CSV_FIELDNAMES
+from . import batch_process, batch_adjust, guess_paradigm, plot_fingerprint, timestamp, _VERSION, _CSV_FIELDNAMES
 
 class AboutWithLinks(wx.Dialog):
     def __init__(self, *args, **kwargs):
@@ -603,10 +603,28 @@ class NineOrNull(wx.Frame):
         event.Skip()
 
     def OnConvert9msToNull(self, event):
-        wx.MessageBox('Coming soon... ;)\n\nConvert +9ms (In The Groove) to null (StepMania)', caption='+9ms or Null?')
+        logging.info('Conversion from +9ms to null')
+        params = self.collect_parameters()
+
+        if wx.MessageBox('Are you sure you want to convert all charts with +9ms (In The Groove) bias to null (StepMania)?',
+            caption='+9ms or Null?',
+            style=wx.YES_NO
+            ) == wx.YES:
+            batch_adjust(self.fingerprints, 'null', **params)
+        else:
+            logging.info('Canceled conversion from +9ms to null')
 
     def OnConvertNullTo9ms(self, event):
-        wx.MessageBox('Coming soon... ;)\n\nConvert null (StepMania) to +9ms (In The Groove)', caption='+9ms or Null?')
+        logging.info('Conversion from null to +9ms')
+        params = self.collect_parameters()
+
+        if wx.MessageBox('Are you sure you want to convert all charts with null (StepMania) bias to +9ms (In The Groove)?',
+            caption='+9ms or Null?',
+            style=wx.YES_NO
+            ) == wx.YES:
+            batch_adjust(self.fingerprints, '+9ms', **params)
+        else:
+            logging.info('Canceled conversion from null to +9ms')
     
     def OnExit(self, event):
         self.Close(True)
