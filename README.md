@@ -1,7 +1,7 @@
 # +9ms or Null?
 ## +9ms or Null? is a StepMania simfile unbiasing utility.
 
-This utility can determine whether the sync bias of a simfile or a pack is +9ms (In The Groove) or null (general StepMania). A future version will also offer to unify it under one of those two options.
+This utility can determine whether the sync bias of a simfile or a pack is +9ms (In The Groove) or null (general StepMania), and offers to unify it under one of those two options.
 
 ***It is not meant to perform a millisecond-perfect sync!*** Please don't depend on the exact value you get from it. Instrument attacks vary significantly, and the algorithm I'm using is not smart enough to know what to focus on.
 
