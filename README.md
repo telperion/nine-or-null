@@ -36,6 +36,8 @@ You have a couple options:
   1. (GUI) `poetry run python -m nine_or_null.gui` or `poetry run python -m nine_or_null`
 - Download the executable (made with PyInstaller).
 
+**NOTE**: `pydub`, the audio processing library I used for this utility, uses [`ffmpeg`](https://ffmpeg.org/download.html) to load audio files into memory. If the program complains about a lack of `ffmpeg`, you may need to install it and add it to your environment path; directions for this are pretty easy to find online.
+
 ### Command-line interface (CLI)
 It's not as configurable as the GUI yet but that's coming soon. For now you can just call the main routine of the `nine_or_null` package, and pass it the full path to the pack as a command-line argument. If you call it without a path, it'll invoke the GUI. (Use `-h` for more info about what options are available.)
 
@@ -58,9 +60,52 @@ The intended workflow:
 
 (If your computer starts really chugging during the bias check, bump the "Spectral step" up or the "Spectral window" down - both of these sacrifice a bit of spectrogram precision but the results are still generally good.)
 
+## Interpreting the plots
++9ms or Null? yields three visuals for each simfile or chart sync it processes. These are presented in the lower-right pane of the GUI during operation, but you can also access them by opening the "View plots" folder, or navigating directly to the report path (indicated in the GUI text box or at the command-line output).
+
+Some features are common among all three plots:
+- The X-axis (horizontal position) represents the time neighborhood of the downbeat according to the timing data (offset, BPMs, stops, etc.) Zero on this axis is thus expected to be "on-beat" under a null sync paradigm; if your files are ITG sync'd, the attack should happen 9.0 ms to the right.
+- The color of the plot represents audio level, usually after some amount of processing or averaging. Purple is the low end of the scale, yellow is high.
+- The ***white squiggly line*** represents the calculation the algorithm's doing to decide where the downbeat attack lands. The highest point, indicating the maximum algorithm response, is labeled as the sync bias, and a ***red vertical line*** is drawn through it.
+
+If there's a sync that doesn't seem to line up with one of the two bias paradigms, or you doubt the result because you already know it to be on-sync, it's always worth a peek at the plots :)
+
+### Spectrogram average
+The spectrogram of each downbeat's neighborhood, stacked in 3D and averaged down to a single plot against local time (X-axis) and frequency (Y-axis). More of a sanity check - not as visually informative as the other two plots. The highest audio level should lie immediately to the right of the bias line.
+
+![Spectrogram average of Euphoria (ITG1)](doc/bias-freqdomain-Euphoria.png)
+
+### Beat digest
+The frequencies in the spectrogram of each downbeat's neighborhood are flattened down, leaving a single line where audio level only corresponds to local time. Repeat this at each beat and stack the lines vertically to make this striking visual.
+
+Y-axis now represents the "beat index". You can also consider horizontal to be "fine time" and vertical to be "coarse time" - the audio track progresses from bottom to top, and each beat should line up to the same sync bias, creating a vertical stripe or swath of yellow to the right of the red bias line.
+
+![Beat digest of Euphoria (ITG1)](doc/bias-beatdigest-Euphoria.png)
+
+
+### Convolution response
+A peek into the guts of the algorithm. Without getting too much into the math, this is the step that precedes the calculation of the squiggly white line: yellow represents high algorithmic response to the audio. The horizontal position with the most response overall will be identified as the sync bias.
+
+![Convolution response of Euphoria (ITG1)](doc/bias-postkernel-Euphoria.png)
+
+This is the most informative plot (imo), and can also help identify other sync issues that might be lurking:
+- A narrow, sharply vertical yellow stripe represents a crisp sync - good!
+    - The stripe can be a little patchy or wavy, but as long as it's strongly vertical, the sync should still feel consistent. (Different instrumentation or human performers will often cause this.)
+
+![Convolution response of Changes (ITG1)](doc/bias-postkernel-Changes.png)
+
+- A tilted yellow stripe indicates that the BPM is slightly off; if the tilt shows up clearly in the fingerprint, it's probably off by at least a hundredth (0.01) or two.
+    - Upward tilt to the right ↗ means the chosen BPM is too low; upward tilt to the left ↖ indicates a BPM too high.
+- Large discontinuities (jumps) in the yellow stripe can indicate song cut errors, incorrect stop values, or other sudden introductions of offset.
+- Of course, you might get a little from column A *and* a little from column B...
+
+![Convolution response of Perfect (ITG1)](doc/bias-postkernel-Perfect.png)
+
+
 ## Future plans
 - Code cleanup
 - Performance optimization (need to move to MVC model :weary:)
+- Swap out `pydub` with `essentia` in streaming mode? Maybe I can get away with skipping large chunks of audio during the load step, which would save some time...
 - If a straight vertical line "fit" can identify bias, then a line fit with both local time and beat index dependence could also identify sync drift...hmm...
 
 
