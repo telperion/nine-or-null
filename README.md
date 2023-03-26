@@ -64,9 +64,10 @@ The intended workflow:
 +9ms or Null? yields three visuals for each simfile or chart sync it processes. These are presented in the lower-right pane of the GUI during operation, but you can also access them by opening the "View plots" folder, or navigating directly to the report path (indicated in the GUI text box or at the command-line output).
 
 Some features are common among all three plots:
-- The X-axis (horizontal position) represents the time neighborhood of the downbeat according to the timing data (offset, BPMs, stops, etc.) Zero on this axis is thus expected to be "on-beat" under a null sync paradigm; if your files are ITG sync'd, the attack should happen 9.0 ms to the right.
+- The X-axis, or horizontal position, represents the time neighborhood of the downbeat according to the timing data - offset, BPMs, stops, etc. Zero on this axis is thus expected to be "on-beat" under a null sync paradigm; if your files are ITG sync'd, the attack should happen 9.0 ms to the right.
 - The color of the plot represents audio level, usually after some amount of processing or averaging. Purple is the low end of the scale, yellow is high.
 - The ***white squiggly line*** represents the calculation the algorithm's doing to decide where the downbeat attack lands. The highest point, indicating the maximum algorithm response, is labeled as the sync bias, and a ***red vertical line*** is drawn through it.
+- The algorithm doesn't exactly match up with human perception, but it should be able to pinpoint the attack within a couple of milliseconds (thus the "tolerance" parameter).
 
 If there's a sync that doesn't seem to line up with one of the two bias paradigms, or you doubt the result because you already know it to be on-sync, it's always worth a peek at the plots :)
 
