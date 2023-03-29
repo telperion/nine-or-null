@@ -1,4 +1,4 @@
-_VERSION = '0.7.0'
+_VERSION = '0.7.1'
 
 from collections.abc import Container
 import csv
@@ -226,6 +226,7 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     frequencies_kHz = fingerprint['frequencies']
     acc = fingerprint['freq_domain']
     digest = fingerprint['beat_digest']
+    beat_indices = fingerprint['beat_indices']
     sync_bias = fingerprint['bias_result']
     post_kernel_flat = fingerprint['convolution']
     post_kernel = fingerprint['post_kernel']
@@ -236,7 +237,8 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     hide_yticks = kwargs.get('hide_yticks', False)
 
     edge_discard = 5        # TODO: pull in from calling function I guess
-    digest_axis = np.arange(digest.shape[0])
+    if beat_indices is None:
+        beat_indices = np.arange(digest.shape[0])
 
     time_ticks = np.hstack((
         np.arange(0, times_ms[ 0], -10),
@@ -261,8 +263,8 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
             post_kernel_flat[edge_discard:-edge_discard].max()
         ),
         (
-            digest.shape[0] * 0.2,
-            digest.shape[0] * 0.8
+            beat_indices.min() * 0.9 + beat_indices.max() * 0.1,
+            beat_indices.min() * 0.1 + beat_indices.max() * 0.9
         ))
 
     # Accumulator in frequency domain
@@ -282,12 +284,12 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     # Digest in beat domain
     ax = target_axes[1]
     ax.clear()
-    pcm = ax.pcolormesh(times_ms, digest_axis, digest)
+    pcm = ax.pcolormesh(times_ms, beat_indices, digest)
     pcm.set_clim(np.percentile(digest[:], 10), np.percentile(digest[:], 90))
     ax.set_ylabel('Beat Index')
     ax.set_xlabel('Time [msec]')
     ax.plot(times_ms + magic_offset_ms, post_kernel_over_beat, 'w-')
-    ax.plot(beatindex_line, digest_axis, 'r-')
+    ax.plot(beatindex_line, beat_indices, 'r-')
     ax.set_xticks(time_ticks)
     if hide_yticks:
         ax.set_yticks([])
@@ -303,10 +305,10 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
         ax.plot(times_ms + magic_offset_ms, post_kernel_over_freq, 'w-')
         ax.plot(frequency_line, frequencies_kHz, 'r-')
     else: # kernel_target == KernelTarget.DIGEST
-        pcm = ax.pcolormesh(times_ms, digest_axis, post_kernel)
+        pcm = ax.pcolormesh(times_ms, beat_indices, post_kernel)
         ax.set_ylabel('Beat Index')
         ax.plot(times_ms + magic_offset_ms, post_kernel_over_beat, 'w-')
-        ax.plot(beatindex_line, digest_axis, 'r-')
+        ax.plot(beatindex_line, beat_indices, 'r-')
     pcm.set_clim(np.percentile(post_kernel[:], 3), np.percentile(post_kernel[:], 97))
     ax.set_xlabel('Time [msec]')
     ax.set_xticks(time_ticks)
@@ -326,6 +328,7 @@ def get_full_title(base_simfile):
 def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
     fingerprint = {
         'beat_digest': None,    # Beat digest fingerprint (beat index vs. time)
+        'beat_indices': None,   # Beat indices that contributed to the digest
         'freq_domain': None,    # Accumulation in frequency domain (frequency vs. time)
         'post_kernel': None,    # Post-kernel
         'bias_result': None,    # Scalar value result of the bias analysis
@@ -364,7 +367,9 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     # Account for stereo audio and normalize
     # https://stackoverflow.com/questions/53633177/how-to-read-a-mp3-audio-file-into-a-numpy-array-save-a-numpy-array-to-mp3
     if audio.channels == 2:
-        audio_data = audio_data.reshape((-1, 2))
+        #audio_data = audio_data.reshape((-1, 2)).sum(1) * 0.5       # Reshape to stereo and average the two channels
+        #audio_data = audio_data.reshape((-1, 2))[:, 0].flatten()    # Pull mono only
+        audio_data = audio_data.reshape((-1, 2)).max(1)              # Reshape to stereo and average the two channels
     audio_data = audio_data / 2**15
 
     ###################################################################
@@ -400,7 +405,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     if full_spectrogram:
         # print(f'audio: {audio_data.shape}, nperseg: {nperseg}, noverlap: {noverlap}, actual_step: {actual_step}, n_spectral_taps: {n_time_taps}, n_freq_taps: {n_freq_taps}')
         frequencies, times, spectrogram = signal.spectrogram(
-            audio_data[:, 0],       # Mono left channel please
+            audio_data[:],
             fs=audio.frame_rate,
             window='hann',
             nperseg=nperseg,
@@ -433,6 +438,8 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     # For each beat in the song that has a full
     # fingerprint's width of surrounding audio data:
     b = 0
+    beat_indices = []
+    t_last = -np.inf
     while True:
         t = engine.time_at(b)
         b += 1
@@ -442,6 +449,10 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
         if (t > audio.duration_seconds):
             # Too late
             break
+        if (t - t_last < fingerprint_ms * 1e-3):
+            # Too soon
+            continue
+        t_last = t
 
         # Because the spectrogram doesn't "start" until a full window is in view,
         # it has an inherent offset that amounts to half a window.
@@ -467,7 +478,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
             # print(f't_sample: {t_sample_s}:{t_sample_f}')
             
             frequencies, times, spectrogram = signal.spectrogram(
-                audio_data[t_sample_s:t_sample_f, 0],       # Mono left channel please
+                audio_data[t_sample_s:t_sample_f],
                 fs=audio.frame_rate,
                 window='hann',
                 nperseg=nperseg,
@@ -486,6 +497,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
         # Accumulate, and add to digest
         acc += spfilt[:n_freq_taps, :]
         digest = np.vstack([digest, np.sum(spfilt, axis=0)])
+        beat_indices.append(b-1)
         
 
     ###################################################################
@@ -543,6 +555,7 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
         chart_tag = ' ' + slot_abbreviation(chart['STEPSTYPE'], chart['DIFFICULTY'], chart_index=chart_index, paradigm=guess_paradigm(sync_bias_ms, **kwargs))
     fingerprint['sample_rate'] = audio.frame_rate
     fingerprint['beat_digest'] = digest
+    fingerprint['beat_indices'] = np.array(beat_indices)
     fingerprint['freq_domain'] = acc
     fingerprint['post_kernel'] = post_kernel
     fingerprint['convolution'] = post_kernel_flat
