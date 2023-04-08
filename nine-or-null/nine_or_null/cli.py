@@ -53,8 +53,15 @@ def start_cli():
     )
     parser.add_argument('-t', '--tolerance',
         help=_PARAMETERS['tolerance'],
-        choices=FloatRange(0, 3.5),
-        default=3.0,
+        choices=FloatRange(0, 4.5),
+        default=4.0,
+        type=float
+    )
+    parser.add_argument('-c', '--confidence',
+        help=_PARAMETERS['confidence_limit'],
+        dest='confidence_limit',
+        choices=FloatRange(0.00, 1.00),
+        default=0.80,
         type=float
     )
     parser.add_argument('-f', '--fingerprint',

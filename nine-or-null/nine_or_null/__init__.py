@@ -1,4 +1,4 @@
-_VERSION = '0.7.1'
+_VERSION = '0.8.0'
 
 from collections.abc import Container
 import csv
@@ -25,6 +25,9 @@ _CSV_FIELDNAMES = [
     'path',
     'slot',
     'bias',
+    'conf',
+    'interquintile',
+    'stdev',
     'paradigm',
     'timestamp',
     'fingerprint_ms',
@@ -47,6 +50,7 @@ _PARAMETERS = {
     'consider_null':    'Consider charts close enough to 0ms bias to be "correct" under the null (StepMania) sync paradigm.',
     'consider_p9ms':    'Consider charts close enough to +9ms bias to be "correct" under the In The Groove sync paradigm.',
     'tolerance':        'If a simfile\'s sync bias lands within a paradigm ± this tolerance, that counts as "close enough".',
+    'confidence_limit': 'If the confidence in a simfile\'s sync bias is below this value, it will not be considered for unbiasing.',
     'fingerprint_ms':   '[ms] Time margin on either side of the beat to analyze.',
     'window_ms':        '[ms] The spectrogram algorithm\'s moving window parameter.',
     'step_ms':          '[ms] Controls the spectrogram algorithm\'s overlap parameter, but expressed as a step size.',
@@ -56,6 +60,9 @@ _PARAMETERS = {
     'full_spectrogram': 'Analyze the full spectrogram in one go - this will make the program run slower...',
     'to_paradigm':      'Choose a target paradigm for the pack unbiasing step. This will modify your simfiles!'
 }
+_THEORETICAL_UPPER = 0.83
+_NEARNESS_SCALAR = 10    # milliseconds
+_NEARNESS_OFFSET = 0.5   # milliseconds
 
 class FloatRange(Container):
     # Endpoint inclusive.
@@ -89,6 +96,7 @@ _PARAM_DEFAULTS = {
     'consider_null':    True,
     'consider_p9ms':    True,
     'tolerance':        3.0,
+    'confidence_limit': 80,
     'fingerprint_ms':   50,
     'window_ms':        10,
     'step_ms':          0.2,
@@ -534,9 +542,31 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     fingerprint_times_ms = fingerprint_times * 1e3
 
     # Choose the highest response to the convolution as the downbeat attack
-    sync_bias_ms = fingerprint_times_ms[np.argmax(post_kernel_flat[edge_discard:-edge_discard]) + edge_discard] + magic_offset_ms
+    post_kernel_clip = post_kernel_flat[edge_discard:-edge_discard]
+    i_max = np.argmax(post_kernel_clip)
+    sync_bias_ms = fingerprint_times_ms[i_max + edge_discard] + magic_offset_ms
     probable_bias = guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)
     # print(f'Sync bias: {sync_bias:0.3f} ({probable_bias})')
+
+    # Calculate a confidence statistic based on the presence of conflicting
+    # high-level response distant from the chosen peak
+    v_clip = np.interp(post_kernel_clip, (min(post_kernel_clip), max(post_kernel_clip)), (0, 1))
+    t_clip = fingerprint_times_ms[edge_discard:-edge_discard]
+    v_std = np.std(v_clip)
+    v_mean = np.mean(v_clip)
+    v_median = np.median(v_clip)
+    v_20 = np.percentile(v_clip, 20)
+    v_80 = np.percentile(v_clip, 80)
+    v_max = v_clip[i_max]
+    v_max_check = np.vstack((np.zeros_like(v_clip), (v_clip - v_median) / (v_max - v_median)))
+    v_max_rivaling = np.max(v_max_check, axis=0)
+    t_close_check = np.vstack((np.zeros_like(t_clip), abs(t_clip - t_clip[i_max]) - _NEARNESS_OFFSET)) / _NEARNESS_SCALAR
+    t_close_enough = np.max(t_close_check, axis=0)
+    max_influence = np.power(v_max_rivaling, 4) * np.power(t_close_enough, 1.5)
+    total_max_influence = np.sum(max_influence) / np.size(max_influence)
+    sync_confidence = min(1, (1 - np.power(total_max_influence, 0.2)) / _THEORETICAL_UPPER)
+    conv_interquintile = v_80 - v_20
+    conv_stdev = v_std
 
     full_title = get_full_title(base_simfile)
 
@@ -553,16 +583,21 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
         fingerprint['steps_type'] = chart['STEPSTYPE']
         fingerprint['chart_slot'] = chart['DIFFICULTY']
         chart_tag = ' ' + slot_abbreviation(chart['STEPSTYPE'], chart['DIFFICULTY'], chart_index=chart_index, paradigm=guess_paradigm(sync_bias_ms, **kwargs))
-    fingerprint['sample_rate'] = audio.frame_rate
-    fingerprint['beat_digest'] = digest
+    fingerprint['sample_rate']  = audio.frame_rate
+    fingerprint['beat_digest']  = digest
     fingerprint['beat_indices'] = np.array(beat_indices)
-    fingerprint['freq_domain'] = acc
-    fingerprint['post_kernel'] = post_kernel
-    fingerprint['convolution'] = post_kernel_flat
-    fingerprint['frequencies'] = frequencies * 1e-3
-    fingerprint['time_values'] = fingerprint_times_ms
-    fingerprint['bias_result'] = sync_bias_ms
-    fingerprint['plots_title'] = f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"{chart_tag}\nSync bias: {sync_bias_ms:+0.1f} ms ({probable_bias})'
+    fingerprint['freq_domain']  = acc
+    fingerprint['post_kernel']  = post_kernel
+    fingerprint['convolution']  = post_kernel_flat
+    fingerprint['frequencies']  = frequencies * 1e-3
+    fingerprint['time_values']  = fingerprint_times_ms
+    fingerprint['bias_result']  = sync_bias_ms
+    fingerprint['confidence']   = sync_confidence
+    fingerprint['conv_stdev']   = conv_stdev
+    fingerprint['conv_quint']   = conv_interquintile
+    fingerprint['plots_title']  = \
+        f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"{chart_tag}' + \
+        f'\n{sync_bias_ms:+0.1f} ms bias ({probable_bias}), {round(sync_confidence*100):d}% conf'
     
     sanitized_title = slugify(full_title + chart_tag, allow_unicode=False)
     target_axes = []
@@ -573,6 +608,12 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
         target_axes.append(fig.add_subplot(1, 1, 1))
     
     plot_fingerprint(fingerprint, target_axes, **kwargs)
+
+    # DEBUG: convolution output for confidence research
+    with open(os.path.join(report_path, f'convolution-{sanitized_title}.csv'), 'w', newline='', encoding='ascii') as conv_fp:
+        writer = csv.writer(conv_fp)
+        for t, v in zip(fingerprint_times_ms, post_kernel_flat):
+            writer.writerow([f'{t:0.6f}', f'{v:0.6f}'])
 
     for i, v in enumerate(['freqdomain', 'beatdigest', 'postkernel']):
         fig = target_figs[i]
@@ -696,6 +737,9 @@ def batch_process(root_path=None, **kwargs):
             for split_chart in charts_within:
                 fp = check_sync_bias(p, base_simfile, chart_index=split_chart, save_plots=True, show_intermediate_plots=False, **kwargs)
                 sync_bias_ms = fp['bias_result']
+                sync_confidence = fp['confidence']
+                conv_quint = 'conv_quint' in fp and f"{fp['conv_quint']:0.6f}" or '----'
+                conv_stdev = 'conv_stdev' in fp and f"{fp['conv_stdev']:0.6f}" or '----'
                 
                 chart_abbr = '*'
                 if split_chart is not None:
@@ -707,14 +751,16 @@ def batch_process(root_path=None, **kwargs):
 
                 logging.info(f'\t{fp_lookup}')
                 logging.info(f'\tderived sync bias = {sync_bias_ms:+0.1f} ms ({guess_paradigm(sync_bias_ms, short_paradigm=False, **kwargs)})')
+                logging.info(f'\tbias confidence = {round(sync_confidence*100):3d}% (interquintile spread = {conv_quint}, stdev = {conv_stdev})')
                 if gui_hook is not None:
                     row_index = len(fingerprints)-1
                     gui_hook.grid_results.InsertRows(row_index, 1)
                     gui_hook.grid_results.SetCellValue(row_index, 0, os.path.relpath(p, root_path))
                     gui_hook.grid_results.SetCellValue(row_index, 1, chart_abbr)
                     gui_hook.grid_results.SetCellValue(row_index, 2, f'{sync_bias_ms:+0.1f}')
-                    gui_hook.grid_results.SetCellValue(row_index, 3, guess_paradigm(sync_bias_ms, **kwargs))
-                    gui_hook.grid_results.MakeCellVisible(row_index, 3)
+                    gui_hook.grid_results.SetCellValue(row_index, 3, f'{round(sync_confidence*100):3d}%')
+                    gui_hook.grid_results.SetCellValue(row_index, 4, guess_paradigm(sync_bias_ms, **kwargs))
+                    gui_hook.grid_results.MakeCellVisible(row_index, 4)
                     for j in range(4):
                         gui_hook.grid_results.SetReadOnly(row_index, j)
                     gui_hook.grid_results.ForceRefresh()
@@ -724,6 +770,9 @@ def batch_process(root_path=None, **kwargs):
                         'path': os.path.relpath(p, root_path),
                         'slot': chart_abbr,
                         'bias': f'{sync_bias_ms:0.3f}',
+                        'conf': f'{sync_confidence:0.4f}',
+                        'interquintile': f"{fp.get('conv_quint', None)}",
+                        'stdev': f"{fp.get('conv_stdev', None)}",
                         'paradigm': guess_paradigm(sync_bias_ms, **kwargs),
                         'timestamp': timestamp(),
                         'sample_rate': fp.get('sample_rate', None)
@@ -755,7 +804,8 @@ def batch_adjust(fingerprints, target_bias, **params):
         if affect_rows is not None and i not in affect_rows:
             continue
         current_paradigm = fingerprints[k].get('bias_adjust', guess_paradigm(fingerprints[k]['bias_result'], **params))
-        if current_paradigm == source_bias:
+        current_confidence = fingerprints[k].get('confidence', 100)
+        if current_paradigm == source_bias and current_confidence >= params.get('confidence_limit', 0):
             logging.info(f'\t{k}')
             # Open simfile
             p, abbr = os.path.split(k)
@@ -782,7 +832,7 @@ def batch_adjust(fingerprints, target_bias, **params):
                         steps_type, chart_slot, chart_index = slot_expansion(abbr)
                         if chart_index is None:
                             chart_index = [i for i, c in enumerate(sm.charts) if c['STEPSTYPE'] == steps_type and c['DIFFICULTY'] == chart_slot][0]
-                        prev_offset = float(sm.charts[chart_index]['OFFSET'])
+                        prev_offset = float(sm.charts[chart_index].get('OFFSET', sm.offset))
                         new_offset = prev_offset + bias_shift
                         logging.info(f'\t{prev_offset:6.3f} -> {new_offset:6.3f}: {k}')
                         sm.charts[chart_index]['OFFSET'] = f'{new_offset:0.3f}'
@@ -793,7 +843,7 @@ def batch_adjust(fingerprints, target_bias, **params):
                     if gui_hook is not None:
                         font_cell = gui_hook.grid_results.GetCellFont(i, 0)
                         gui_hook.grid_results.SetCellValue(i, 2, f"{fingerprints[k]['bias_result']:+0.1f}")
-                        gui_hook.grid_results.SetCellValue(i, 3, target_bias)
+                        gui_hook.grid_results.SetCellValue(i, 4, target_bias)
                         for j in range(gui_hook.grid_results.GetNumberCols()):
                             gui_hook.grid_results.SetCellFont(i, j, font_cell.MakeBold())
 

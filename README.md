@@ -103,6 +103,30 @@ This is the most informative plot (imo), and can also help identify other sync i
 ![Convolution response of Perfect (ITG1)](doc/bias-postkernel-Perfect.png)
 
 
+## Confidence
+
+Not every track has a sharply defined beat throughout. Sometimes the sync fingerprint can pinpoint the attack clearly; other tracks might exhibit a lot of uncertainty, or the simfile skeleton might not define the correct BPMs. This tool is (for the moment) only interested in offset identification and adjustment, and we don't want to mess with files that are unclear - or in a state where moving the offset won't make the sync better. With that in mind, a **confidence metric** is introduced.
+
+### What makes a good confidence metric?
+What could cause the algorithm to pick an incorrect sync bias? Let's consider the following:
+- How much of a clear winner is the attack time the algorithm chooses? Or, would it be hard to pick out the peak because there's high response in the neighborhood? (say, a ringing attack, or a two-part attack like a clap sound)
+- Is this extra algorithmic response far enough away from the chosen attack time that it would actually impact the sync?
+
+With that in mind, the following calculations are performed:
+1. For each point in the flattened convolution response (the white squiggle in the sync fingerprint plots), measure the following:
+    - *v*, the relative distance from the response's median, compared to the identified peak.
+    - *d*, the time difference from the identified peak.
+1. Balance these two measurements using power functions and multiply them together to calculate the "unconfidence" this point contributes. (The current confidence calculation uses *v*^4 × *d*^1.5.)
+1. Sum all of these "unconfidence" values and subtract from 1 to obtain a "confidence" value.
+1. Apply some perceptual scaling and express as a percentage.
+
+The actual values returned from the confidence metric don't have an intrinsic meaning - that is, there's nothing in the plot you can point to that directly produces it - but it's expected that "messier" plots result in lower confidence, and "sharper" plots in higher confidence.
+
+Note that a value of 100% or near-100% confidence does not mean the current sync is *correct*, just that the algorithm can't see anything in the rest of the fingerprint to convince it that the peak could possibly lie elsewhere.
+
+The GUI includes a control to tune the minimum confidence to apply unbiasing at; it's expressed in percentage out of 100%. The CLI also offers this parameter, but in terms of proportion out of unity - for example, if the user wants to only apply unbiasing over 80% confidence, they would pass `--confidence 0.80` at the command line invocation. The CSV output also expresses the confidence as a proportion out of unity.
+
+
 ## Future plans
 - Code cleanup
 - Performance optimization (need to move to MVC model :weary:)

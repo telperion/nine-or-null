@@ -133,7 +133,7 @@ class NineOrNull(wx.Frame):
         self.checkbox_p9ms.SetToolTip(wx.ToolTip('Consider charts close enough to +9ms bias to be "correct" under the ITG sync paradigm.'))
         self.checkbox_p9ms.SetValue(True)
         self.label_tolerance = wx.StaticText(     self.panel_paradigms, label='Tolerance (ms): ±')
-        self.spin_tolerance   = wx.SpinCtrlDouble(self.panel_paradigms, style=wx.SP_ARROW_KEYS, min=0.5, max=4.5, initial=3, inc=0.5)
+        self.spin_tolerance   = wx.SpinCtrlDouble(self.panel_paradigms, style=wx.SP_ARROW_KEYS, min=0.5, max=4.5, initial=4.0, inc=0.5)
         self.spin_tolerance.SetDigits(1)
         
         sizer_paradigms = wx.GridBagSizer(6, 0)
@@ -233,7 +233,7 @@ class NineOrNull(wx.Frame):
         # Results and resync offers
         self.panel_results = wx.Panel(self.panel_main)
         self.panel_results.SetBackgroundColour(self.GetBackgroundColour().ChangeLightness(170))
-        self.panel_results.SetMinSize((324, 90))
+        self.panel_results.SetMinSize((324, 120))
         
         self.label_results  = wx.StaticText(self.panel_results, label='Sync bias results')
         self.label_results.SetFont(self.label_results.GetFont().MakeUnderlined())
@@ -245,15 +245,21 @@ class NineOrNull(wx.Frame):
         self.button_plots.SetToolTip(wx.ToolTip('Open the directory above that contains the plots...'))
 
         
-        self.label_null     = wx.StaticText(self.panel_results, label=' Null (StepMania) ')
-        self.label_p9ms     = wx.StaticText(self.panel_results, label=' +9ms (In The Groove) ')
-        self.label_unknown  = wx.StaticText(self.panel_results, label=' Unknown paradigm: ')
-        self.entry_null     = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
-        self.entry_p9ms     = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
-        self.entry_unknown  = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
-        self.button_null    = wx.BitmapButton(self.panel_results, bitmap=wx.ArtProvider.GetBitmap(wx.ART_GO_DOWN))
+        self.checkbox_conf   = wx.CheckBox(self.panel_results, label='Confidence filter (%)')
+        self.checkbox_conf.SetToolTip(wx.ToolTip('If the confidence in a simfile\'s sync bias is below this value,\nit will not be considered for unbiasing.'))
+        self.checkbox_conf.SetValue(True)
+        self.spin_conf_limit = wx.SpinCtrl(self.panel_results, style=wx.SP_ARROW_KEYS, min=0, max=100, initial=80)
+        self.spin_conf_limit.SetToolTip(wx.ToolTip('Controls the minimum confidence requirement\n(out of 100%) for unbiasing inclusion.'))
+        self.spin_conf_limit.SetMinSize((54, 24))
+        self.label_null      = wx.StaticText(self.panel_results, label=' Null (StepMania) ')
+        self.label_p9ms      = wx.StaticText(self.panel_results, label=' +9ms (In The Groove) ')
+        self.label_unknown   = wx.StaticText(self.panel_results, label=' Unknown paradigm: ')
+        self.entry_null      = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
+        self.entry_p9ms      = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
+        self.entry_unknown   = wx.TextCtrl(self.panel_results, value='----', style=wx.TE_CENTER)
+        self.button_null     = wx.BitmapButton(self.panel_results, bitmap=wx.ArtProvider.GetBitmap(wx.ART_GO_DOWN))
         self.button_null.SetToolTip(wx.ToolTip('Add a +9ms bias to these simfiles or charts.'))
-        self.button_p9ms    = wx.BitmapButton(self.panel_results, bitmap=wx.ArtProvider.GetBitmap(wx.ART_GO_UP))
+        self.button_p9ms     = wx.BitmapButton(self.panel_results, bitmap=wx.ArtProvider.GetBitmap(wx.ART_GO_UP))
         self.button_p9ms.SetToolTip(wx.ToolTip('Remove the +9ms bias from these simfiles or charts.'))
 
         for button in [self.button_logs, self.button_plots, self.button_null, self.button_p9ms]:
@@ -262,6 +268,9 @@ class NineOrNull(wx.Frame):
             entry.SetMinSize((48, 24))
             entry.SetFont(wx.Font(12, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD, False))
 
+        sizer_conf = wx.BoxSizer(wx.HORIZONTAL)
+        sizer_conf.Add(self.checkbox_conf,   1, wx.CENTER)
+        sizer_conf.Add(self.spin_conf_limit, 0, wx.CENTER)
         sizer_null = wx.BoxSizer(wx.HORIZONTAL)
         sizer_null.Add(self.label_null,  1, wx.CENTER)
         sizer_null.Add(self.entry_null,  0, wx.CENTER)
@@ -277,13 +286,14 @@ class NineOrNull(wx.Frame):
         sizer_unknown.Add(self.entry_unknown, 0, wx.CENTER)
         sizer_results = wx.GridBagSizer(0, 6)
         sizer_results.Add(self.label_results, (0, 0), span=(1, 2), flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(self.label_logs,    (1, 0),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(self.button_logs,   (1, 1),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(self.label_plots,   (2, 0),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(self.button_plots,  (2, 1),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(sizer_null,         (0, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(sizer_p9ms,         (1, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
-        sizer_results.Add(sizer_unknown,      (2, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(self.label_logs,    (2, 0),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(self.button_logs,   (2, 1),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(self.label_plots,   (3, 0),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(self.button_plots,  (3, 1),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(sizer_conf,         (0, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(sizer_null,         (1, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(sizer_p9ms,         (2, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
+        sizer_results.Add(sizer_unknown,      (3, 3),              flag=wx.EXPAND | wx.ALIGN_CENTER)
         sizer_results.AddGrowableCol(0, 1)
         sizer_results.AddGrowableCol(2, 1)
         sizer_v = wx.BoxSizer(wx.VERTICAL)
@@ -295,8 +305,8 @@ class NineOrNull(wx.Frame):
         # --------------------------------------------------------------
         # Results table
         self.grid_results = wx.grid.Grid(self.panel_main)
-        self.grid_results.CreateGrid(0, 4)
-        self.grid_results.SetMinSize((318, 312))
+        self.grid_results.CreateGrid(0, 5)
+        self.grid_results.SetMinSize((318, 282))
         
         self.grid_results.DisableCellEditControl()
         self.grid_results.DisableDragColMove()
@@ -313,9 +323,9 @@ class NineOrNull(wx.Frame):
         self.grid_results.SetColLabelSize(18)
         for row_index in range(self.grid_results.GetNumberRows()):
             self.grid_results.SetRowSize(row_index, 18)
-        for col_index, col_label in enumerate(['Simfile', 'Slot', 'Bias', 'Par?']):
+        for col_index, col_label in enumerate(['Simfile', 'Slot', 'Bias', 'Conf', 'Par?']):
             self.grid_results.SetColLabelValue(col_index, col_label)
-        for col_index, col_width in enumerate([180, 36, 48, 36]):
+        for col_index, col_width in enumerate([156, 36, 36, 36, 36]):
             self.grid_results.SetColSize(col_index, col_width)
         self.grid_results.SetDefaultCellAlignment(wx.ALIGN_CENTER, wx.ALIGN_CENTER)
         self.grid_results.SetDefaultCellFitMode(wx.grid.GridFitMode.Ellipsize())
@@ -423,6 +433,7 @@ class NineOrNull(wx.Frame):
         self.Bind(wx.EVT_BUTTON, self.OnProcess, self.button_process)
         self.Bind(wx.EVT_BUTTON, self.OnOpenLogs, self.button_logs)
         self.Bind(wx.EVT_BUTTON, self.OnViewPlots, self.button_plots)
+        self.Bind(wx.EVT_CHECKBOX, self.OnToggleConfidenceLimit, self.checkbox_conf)
         self.Bind(wx.grid.EVT_GRID_CELL_LEFT_DCLICK, self.OnClickResultRow, self.grid_results)
         self.Bind(wx.EVT_BUTTON, self.OnConvert9msToNull, self.button_p9ms)
         self.Bind(wx.EVT_BUTTON, self.OnConvertNullTo9ms, self.button_null)
@@ -435,6 +446,7 @@ class NineOrNull(wx.Frame):
         params['consider_null'] = self.checkbox_null.IsChecked()
         params['consider_p9ms'] = self.checkbox_p9ms.IsChecked()
         params['tolerance'] = self.spin_tolerance.GetValue()
+        params['confidence_limit'] = self.spin_conf_limit.GetValue() * 0.01     # User sees a percentage value
         params['fingerprint_ms'] = self.spin_fingerprint_size.GetValue()
         params['window_ms'] = self.spin_window_size.GetValue()
         params['step_ms'] = self.spin_step_size.GetValue()
@@ -455,6 +467,13 @@ class NineOrNull(wx.Frame):
         else:
             self.entry_report_path.Enable()
             self.button_report_path.Enable()
+            
+    def OnToggleConfidenceLimit(self, event):
+        if event.IsChecked():
+            self.spin_conf_limit.Enable()
+        else:
+            self.spin_conf_limit.Disable()
+            self.spin_conf_limit.SetValue(0)
 
     def OnChooseRootPath(self, event):
         dlg = wx.DirDialog(self,
