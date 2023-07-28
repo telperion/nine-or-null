@@ -1,4 +1,4 @@
-_VERSION = '0.8.0'
+_VERSION = '0.8.1'
 
 from collections.abc import Container
 import csv
@@ -12,6 +12,7 @@ import unicodedata
 
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import ticker as mticker
 from scipy import signal
 from pydub import AudioSegment
 
@@ -249,8 +250,8 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
         beat_indices = np.arange(digest.shape[0])
 
     time_ticks = np.hstack((
-        np.arange(0, times_ms[ 0], -10),
-        np.arange(0, times_ms[-1],  10)
+        np.arange(0, times_ms[ 0]-1, -10),
+        np.arange(0, times_ms[-1]+1,  10)
     ))
     frequency_line = np.ones(np.shape(frequencies_kHz)) * sync_bias
     beatindex_line = np.ones(np.shape(digest)[0])   * sync_bias
@@ -280,13 +281,18 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.clear()
     pcm = ax.pcolormesh(times_ms, frequencies_kHz, acc)
     ax.set_ylabel('Frequency [kHz]')
-    ax.set_xlabel('Time [msec]')
+    ax.set_xlabel('Time [msec]', labelpad=-12)
     ax.plot(times_ms + magic_offset_ms, post_kernel_over_freq, 'w-')
     ax.plot(frequency_line, frequencies_kHz, 'r-')
-    ax.set_xticks(time_ticks)
     if hide_yticks:
         ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
+    ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
+    ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
+    ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
+    ax.tick_params('x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
     # Digest in beat domain
@@ -295,13 +301,18 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     pcm = ax.pcolormesh(times_ms, beat_indices, digest)
     pcm.set_clim(np.percentile(digest[:], 10), np.percentile(digest[:], 90))
     ax.set_ylabel('Beat Index')
-    ax.set_xlabel('Time [msec]')
+    ax.set_xlabel('Time [msec]', labelpad=-12)
     ax.plot(times_ms + magic_offset_ms, post_kernel_over_beat, 'w-')
     ax.plot(beatindex_line, beat_indices, 'r-')
-    ax.set_xticks(time_ticks)
     if hide_yticks:
         ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
+    ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
+    ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
+    ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
+    ax.tick_params('x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
     # Post-convolution plot
@@ -318,11 +329,16 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
         ax.plot(times_ms + magic_offset_ms, post_kernel_over_beat, 'w-')
         ax.plot(beatindex_line, beat_indices, 'r-')
     pcm.set_clim(np.percentile(post_kernel[:], 3), np.percentile(post_kernel[:], 97))
-    ax.set_xlabel('Time [msec]')
-    ax.set_xticks(time_ticks)
+    ax.set_xlabel('Time [msec]', labelpad=-12)
     if hide_yticks:
         ax.set_yticks([])
     ax.set_xlim(-fingerprint_ms, fingerprint_ms)
+    ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
+    ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
+    ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
+    ax.tick_params('x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
 
@@ -331,6 +347,45 @@ def get_full_title(base_simfile):
     simfile_title    = base_simfile.titletranslit    or base_simfile.title
     simfile_subtitle = base_simfile.subtitletranslit or base_simfile.subtitle
     return f'{simfile_title}{simfile_subtitle and (" " + simfile_subtitle) or ""}'
+
+
+def find_music(simfile_dir, music_filename):
+    if (music_filename is None) or (len(music_filename) == 0):
+        # Any info whatsoever about the music filename?
+        music_stem = ''
+    else:
+        if os.path.isfile(os.path.join(simfile_dir, music_filename)):
+            # Already know which music file is being used.
+            return music_filename
+
+        # Let's at least look for a matching filename stem.
+        music_stem = os.path.splitext(os.path.split(music_filename)[1])[0]
+    
+    files = os.listdir(simfile_dir)
+    # StepMania supports MP3, WAV, OGA, and OGG
+    # Project OutFox community might use Opus or FLAC
+    music_options = [f for f in files if os.path.splitext(f)[1] in ['.wav', '.mp3', '.oga', '.ogg', '.opus', '.flac']]
+    if music_stem == '':
+        # Any audio file will be accepted here.
+        music_options_fn = music_options
+    else:
+        # Only audio files that match the presumed stem are accepted.
+        music_options_fn = [f for f in music_options if os.path.splitext(f)[0].lower() == music_stem.lower()]
+    
+    if len(music_options_fn) != 1:
+        # Last-ditch effort. Any music files, even if they don't match the filename??
+        music_options_fn = music_options
+
+    if len(music_options_fn) == 0:
+        # No audio...
+        raise FileNotFoundError(f'No audio file matching {music_filename}')
+    elif len(music_options_fn) > 1:
+        # Too many audio...
+        raise FileNotFoundError(f'Too many audio files matching {music_filename}')
+
+    music_found = music_options_fn[0]
+    logging.info(f"Simfile/chart audio substitution: {(music_filename is None) and '' or music_filename} --> {music_found}")
+    return music_found
 
 
 def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
@@ -357,12 +412,12 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     simfile_subtitle = base_simfile.subtitletranslit or base_simfile.subtitle
 
     # Account for split audio
-    audio_path = os.path.join(simfile_dir, base_simfile.music)
+    audio_path = os.path.join(simfile_dir, find_music(simfile_dir, base_simfile.music))
     chart = None
     if chart_index is not None:
         chart = base_simfile.charts[chart_index]
         if chart.get('MUSIC') is not None:
-            audio_path = os.path.join(simfile_dir, chart.music)
+            audio_path = os.path.join(simfile_dir, find_music(simfile_dir, chart.music))
 
     engine = TimingEngine(TimingData(base_simfile, chart))
 
@@ -726,7 +781,7 @@ def batch_process(root_path=None, **kwargs):
                 gui_hook.SetStatusText(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str}) Checking sync bias on {os.path.relpath(p, root_path)}...')
                 gui_hook.allow_to_update()
 
-            base_simfile = simfile.open(test_simfile_path)
+            base_simfile = simfile.open(test_simfile_path, strict=False)
             # Account for split timing.
             charts_within = [None]
             for chart_index, chart in enumerate(base_simfile.charts):
@@ -821,7 +876,8 @@ def batch_adjust(fingerprints, target_bias, **params):
 
             with simfile.mutate(
                 test_simfile_path,
-                backup_filename=test_simfile_path + ".oldsync"
+                backup_filename=test_simfile_path + ".oldsync",
+                strict=False
             ) as sm:
                 try:
                     if abbr == '*':
