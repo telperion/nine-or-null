@@ -1,0 +1,8 @@
+{
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.pythonPath": "c:\\Users\\telpi\\AppData\\Local\\pypoetry\\Cache\\virtualenvs\\nine-or-null-ON6gIesj-py3.9\\Scripts\\python.exe"
+}
