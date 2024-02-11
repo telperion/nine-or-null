@@ -3,7 +3,7 @@ name = "nine-or-null"
 version = "0.1.0"
 description = "Is this simfile sync'd to the +9ms standard or to null?"
 authors = ["telp"]
-readme = "README.md"
+readme = "../README.md"
 packages = [{include = "nine_or_null"}]
 
 [tool.poetry.dependencies]
