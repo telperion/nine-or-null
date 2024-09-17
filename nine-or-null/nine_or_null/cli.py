@@ -38,6 +38,9 @@ def start_cli():
     parser.add_argument('-r', '--report_path',
         help=_PARAMETERS['report_path']
     )
+    parser.add_argument('-o', '--overwrite',
+        help=_PARAMETERS['overwrite']
+    )
     parser.add_argument('-p', '--to-paradigm',
         required=False,
         choices=['null', '+9ms'],

@@ -1,4 +1,4 @@
-_VERSION = '0.8.1'
+_VERSION = '0.8.4'
 
 from collections.abc import Container
 import csv
@@ -48,6 +48,7 @@ _PARAMETERS = {
     # Default parameters.
     'root_path':        'Path to a simfile, pack, or collection of packs to analyze. If not provided, the GUI is invoked instead.',
     'report_path':      'The destination directory for the sync bias report and audio fingerprint plots. If not provided, defaults to "<root_path>/__bias-check".',
+    'overwrite':        'If not set, skip files that already have bias check data in the directory.',
     'consider_null':    'Consider charts close enough to 0ms bias to be "correct" under the null (StepMania) sync paradigm.',
     'consider_p9ms':    'Consider charts close enough to +9ms bias to be "correct" under the In The Groove sync paradigm.',
     'tolerance':        'If a simfile\'s sync bias lands within a paradigm ± this tolerance, that counts as "close enough".',
@@ -94,6 +95,7 @@ _PARAM_DEFAULTS = {
     # Default parameters.
     'root_path':        None,
     'report_path':      None,
+    'overwrite':        True,
     'consider_null':    True,
     'consider_p9ms':    True,
     'tolerance':        3.0,
@@ -229,6 +231,46 @@ def guess_paradigm(sync_bias_ms, tolerance=3, consider_null=True, consider_p9ms=
         return short_paradigm and '????' or 'unclear paradigm'
 
 
+class FlippableAxes:
+    def __init__(self, axes: plt.Axes, flip: bool = False):
+        self.ax = axes
+        self.flip = flip
+
+    def plot_flip(self, x, y, *args, **kwargs):
+        return self.ax.plot(y, x, *args, **kwargs)
+
+    def pcolormesh_flip(self, x, y, d, *args, **kwargs):
+        return self.ax.pcolormesh(y, x, d.T, *args, **kwargs)
+
+    def __getattr__(self, attr):
+        if attr == 'set_xlabel':
+            return self.ax.set_ylabel if self.flip else self.ax.set_xlabel
+        if attr == 'set_ylabel':
+            return self.ax.set_xlabel if self.flip else self.ax.set_ylabel
+        
+        if attr == 'set_xticks':
+            return self.ax.set_yticks if self.flip else self.ax.set_xticks
+        if attr == 'set_yticks':
+            return self.ax.set_xticks if self.flip else self.ax.set_yticks
+        
+        if attr == 'set_xlim':
+            return self.ax.set_ylim if self.flip else self.ax.set_xlim
+        if attr == 'set_ylim':
+            return self.ax.set_xlim if self.flip else self.ax.set_ylim
+        
+        if attr == 'xaxis':
+            return self.ax.yaxis if self.flip else self.ax.xaxis
+        if attr == 'yaxis':
+            return self.ax.xaxis if self.flip else self.ax.yaxis
+        
+        if attr == 'plot':
+            return self.plot_flip if self.flip else self.ax.plot
+        if attr == 'pcolormesh':
+            return self.pcolormesh_flip if self.flip else self.ax.pcolormesh
+        
+        return getattr(self.ax, attr)
+    
+
 def plot_fingerprint(fingerprint, target_axes, **kwargs):
     # Set up visuals to show the user what's going on.
     times_ms = fingerprint['time_values']
@@ -244,6 +286,7 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     magic_offset_ms = kwargs.get('magic_offset_ms', 0.0)
     kernel_target = kwargs.get('kernel_target', KernelTarget.DIGEST)
     hide_yticks = kwargs.get('hide_yticks', False)
+    flip_axes = kwargs.get('flip_axes', False)
 
     edge_discard = 5        # TODO: pull in from calling function I guess
     if beat_indices is None:
@@ -277,7 +320,7 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
         ))
 
     # Accumulator in frequency domain
-    ax = target_axes[0]
+    ax = FlippableAxes(target_axes[0], flip_axes)
     ax.clear()
     pcm = ax.pcolormesh(times_ms, frequencies_kHz, acc)
     ax.set_ylabel('Frequency [kHz]')
@@ -290,13 +333,13 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
     ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
     ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
-    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
-    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
-    ax.tick_params('x', which='minor', pad=24, bottom=False)
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow\:feels\enspace later\:\longleftarrow$', r'$\longrightarrow\:feels\enspace earlier\:\longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=90 if flip_axes else 0, size=10, va="center")
+    ax.tick_params('y' if flip_axes else 'x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
     # Digest in beat domain
-    ax = target_axes[1]
+    ax = FlippableAxes(target_axes[1], flip_axes)
     ax.clear()
     pcm = ax.pcolormesh(times_ms, beat_indices, digest)
     pcm.set_clim(np.percentile(digest[:], 10), np.percentile(digest[:], 90))
@@ -310,13 +353,13 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
     ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
     ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
-    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
-    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
-    ax.tick_params('x', which='minor', pad=24, bottom=False)
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow\:feels\enspace later\:\longleftarrow$', r'$\longrightarrow\:feels\enspace earlier\:\longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=90 if flip_axes else 0, size=10, va="center")
+    ax.tick_params('y' if flip_axes else 'x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
     # Post-convolution plot
-    ax = target_axes[2]
+    ax = FlippableAxes(target_axes[2], flip_axes)
     ax.clear()
     if kernel_target == KernelTarget.ACCUMULATOR:
         pcm = ax.pcolormesh(times_ms, frequencies_kHz, post_kernel)
@@ -336,9 +379,9 @@ def plot_fingerprint(fingerprint, target_axes, **kwargs):
     ax.xaxis.set_major_locator(mticker.FixedLocator(time_ticks))
     ax.xaxis.set_major_formatter(mticker.FixedFormatter([f'{v:0.0f}' for v in time_ticks]))
     ax.xaxis.set_minor_locator(mticker.FixedLocator((-fingerprint_ms * 0.7, fingerprint_ms * 0.7)))
-    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow late \longleftarrow$', r'$\longrightarrow early \longrightarrow$')))
-    plt.setp(ax.xaxis.get_minorticklabels(), rotation=0, size=10, va="center")
-    ax.tick_params('x', which='minor', pad=24, bottom=False)
+    ax.xaxis.set_minor_formatter(mticker.FixedFormatter((r'$\longleftarrow\:feels\enspace later\:\longleftarrow$', r'$\longrightarrow\:feels\enspace earlier\:\longrightarrow$')))
+    plt.setp(ax.xaxis.get_minorticklabels(), rotation=90 if flip_axes else 0, size=10, va="center")
+    ax.tick_params('y' if flip_axes else 'x', which='minor', pad=24, bottom=False)
     ax.get_figure().suptitle(plot_title)
 
 
@@ -388,7 +431,7 @@ def find_music(simfile_dir, music_filename):
     return music_found
 
 
-def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
+def check_sync_bias(root_path, simfile_dir, base_simfile, chart_index=None, report_path=None, save_plots=True, show_intermediate_plots=False, **kwargs):
     fingerprint = {
         'beat_digest': None,    # Beat digest fingerprint (beat index vs. time)
         'beat_indices': None,   # Beat indices that contributed to the digest
@@ -406,18 +449,26 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     kernel_target    = kwargs.get('kernel_target',    KernelTarget.DIGEST)
     magic_offset_ms  = kwargs.get('magic_offset_ms',  0.0)                    # Why though
     full_spectrogram = kwargs.get('full_spectrogram', False)
+    overwrite        = kwargs.get('overwrite',        True)
+
+    full_simfile_dir = os.path.join(root_path, simfile_dir)
 
     simfile_artist   = base_simfile.artisttranslit   or base_simfile.artist
     simfile_title    = base_simfile.titletranslit    or base_simfile.title
     simfile_subtitle = base_simfile.subtitletranslit or base_simfile.subtitle
+    full_title = get_full_title(base_simfile)
+    sanitized_title_existence_test = slugify(full_title, allow_unicode=False)
+
+    # Early exit to avoid overwriting
+    existing_outputs = os.listdir(report_path)
 
     # Account for split audio
-    audio_path = os.path.join(simfile_dir, find_music(simfile_dir, base_simfile.music))
+    audio_path = os.path.join(full_simfile_dir, find_music(full_simfile_dir, base_simfile.music))
     chart = None
     if chart_index is not None:
         chart = base_simfile.charts[chart_index]
         if chart.get('MUSIC') is not None:
-            audio_path = os.path.join(simfile_dir, find_music(simfile_dir, chart.music))
+            audio_path = os.path.join(full_simfile_dir, find_music(full_simfile_dir, chart.music))
 
     engine = TimingEngine(TimingData(base_simfile, chart))
 
@@ -623,7 +674,6 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     conv_interquintile = v_80 - v_20
     conv_stdev = v_std
 
-    full_title = get_full_title(base_simfile)
 
     plot_tag_vars = kwargs.get('tag_vars', {}) 
     if len(plot_tag_vars) == 0:
@@ -650,19 +700,22 @@ def check_sync_bias(simfile_dir, base_simfile, chart_index=None, report_path=Non
     fingerprint['confidence']   = sync_confidence
     fingerprint['conv_stdev']   = conv_stdev
     fingerprint['conv_quint']   = conv_interquintile
+    # fingerprint['plots_title']  = \
+    #     f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"{chart_tag}' + \
+    #     f'\n{sync_bias_ms:+0.1f} ms bias ({probable_bias}), {round(sync_confidence*100):d}% conf'
     fingerprint['plots_title']  = \
-        f'Sync fingerprint{plot_tag}\n{simfile_artist} - "{full_title}"{chart_tag}' + \
-        f'\n{sync_bias_ms:+0.1f} ms bias ({probable_bias}), {round(sync_confidence*100):d}% conf'
+        f'{full_title}{chart_tag}\n{simfile_artist}' + \
+        f'\nSync fingerprint{plot_tag}: {sync_bias_ms:+0.1f} ms bias, {round(sync_confidence*100):d}% conf'
     
-    sanitized_title = slugify(full_title + chart_tag, allow_unicode=False)
+    sanitized_title = slugify(re.sub(r'[\\/]', '-', simfile_dir) + chart_tag, allow_unicode=False)
     target_axes = []
     target_figs = []
     for i in range(3):
-        fig = plt.figure(figsize=(6, 6))
+        fig = plt.figure(figsize=(12, 6))
         target_figs.append(fig)
         target_axes.append(fig.add_subplot(1, 1, 1))
     
-    plot_fingerprint(fingerprint, target_axes, **kwargs)
+    plot_fingerprint(fingerprint, target_axes, flip_axes=True, **kwargs)
 
     # DEBUG: convolution output for confidence research
     with open(os.path.join(report_path, f'convolution-{sanitized_title}.csv'), 'w', newline='', encoding='ascii') as conv_fp:
@@ -750,22 +803,23 @@ def batch_process(root_path=None, **kwargs):
     for r, d, f in os.walk(root_path):
         for fn in f:
             if os.path.splitext(fn)[1] in ['.ssc', '.sm']:
-                simfile_dirs.append(r)
+                simfile_dirs.append(os.path.relpath(r, root_path))
     
     simfile_dirs = sorted(list(set(simfile_dirs)))
     fingerprints = {}
     logging.info(f'Found {len(simfile_dirs)} simfiles in {root_path}')
     for d in simfile_dirs:
-        logging.info(f'\t{os.path.relpath(d, root_path)}')
+        logging.info(f'\t{d}')
 
     time_start = dt.utcnow()
     for i, p in enumerate(simfile_dirs):
         # Open simfile
+        full_simfile_path = os.path.join(root_path, p)
         test_simfile_path = None
-        for f in os.listdir(p):
+        for f in os.listdir(full_simfile_path):
             if os.path.splitext(f)[1] in ['.ssc', '.sm']:
                 if (test_simfile_path is None) or (os.path.splitext(test_simfile_path)[1] == '.sm'):
-                    test_simfile_path = os.path.join(p, f)
+                    test_simfile_path = os.path.join(full_simfile_path, f)
         if test_simfile_path is None:
             # How did this happen!
             continue
@@ -778,7 +832,7 @@ def batch_process(root_path=None, **kwargs):
                 time_elapsed_str += ', ' + timedelta_as_hhmmss(time_expected) + ' expected'
             logging.info(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str})')
             if gui_hook is not None:
-                gui_hook.SetStatusText(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str}) Checking sync bias on {os.path.relpath(p, root_path)}...')
+                gui_hook.SetStatusText(f'({i+1:d}/{len(simfile_dirs):d}: {time_elapsed_str}) Checking sync bias on {p}...')
                 gui_hook.allow_to_update()
 
             base_simfile = simfile.open(test_simfile_path, strict=False)
@@ -790,7 +844,7 @@ def batch_process(root_path=None, **kwargs):
                     charts_within.append(chart_index)
 
             for split_chart in charts_within:
-                fp = check_sync_bias(p, base_simfile, chart_index=split_chart, save_plots=True, show_intermediate_plots=False, **kwargs)
+                fp = check_sync_bias(root_path, p, base_simfile, chart_index=split_chart, save_plots=True, show_intermediate_plots=False, **kwargs)
                 sync_bias_ms = fp['bias_result']
                 sync_confidence = fp['confidence']
                 conv_quint = 'conv_quint' in fp and f"{fp['conv_quint']:0.6f}" or '----'
@@ -810,7 +864,7 @@ def batch_process(root_path=None, **kwargs):
                 if gui_hook is not None:
                     row_index = len(fingerprints)-1
                     gui_hook.grid_results.InsertRows(row_index, 1)
-                    gui_hook.grid_results.SetCellValue(row_index, 0, os.path.relpath(p, root_path))
+                    gui_hook.grid_results.SetCellValue(row_index, 0, p)
                     gui_hook.grid_results.SetCellValue(row_index, 1, chart_abbr)
                     gui_hook.grid_results.SetCellValue(row_index, 2, f'{sync_bias_ms:+0.1f}')
                     gui_hook.grid_results.SetCellValue(row_index, 3, f'{round(sync_confidence*100):3d}%')
@@ -822,7 +876,7 @@ def batch_process(root_path=None, **kwargs):
                     gui_hook.allow_to_update()
                 if csv_hook is not None:
                     row = {
-                        'path': os.path.relpath(p, root_path),
+                        'path': p,
                         'slot': chart_abbr,
                         'bias': f'{sync_bias_ms:0.3f}',
                         'conf': f'{sync_confidence:0.4f}',
