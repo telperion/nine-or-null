@@ -10,6 +10,6 @@ namespace nine_or_null {
         std::time(&time_raw);
         time_ptr = std::gmtime(&time_raw);
 
-        return (time_ptr->tm_hour * 60.0f + time_ptr->tm_min) / 1440.0f;
+        return (time_ptr->tm_hour * 3600.0f + time_ptr->tm_min * 60.0f + time_ptr->tm_sec) / 86400.0f;
     }
 }
