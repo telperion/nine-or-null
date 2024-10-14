@@ -1,1 +1,1 @@
-add_library(nine_or_null nine_or_null.cpp)
+add_library(nine_or_null STATIC nine_or_null.cpp)

@@ -164,6 +164,9 @@ cython_debug/
 **/CTestTestfile.cmake
 **/_deps
 **/CMakeUserPresets.json
+**/CPackConfig.cmake
+**/CPackSourceConfig.cmake
+cpp/dot
 
 # C++ port ignores
 **/*.vcxproj*
@@ -172,3 +175,4 @@ cython_debug/
 **/*.dir
 **/Debug
 **/Release
+cpp/src/include
