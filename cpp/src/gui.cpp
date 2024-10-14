@@ -4,8 +4,6 @@
 #include <backends/imgui_impl_win32.h>
 #include <backends/imgui_impl_dx11.h>
 
-#include <glog/logging.h>
-
 #include "nine_or_null/nine_or_null.h"
 
 int imgui_main()
@@ -42,8 +40,6 @@ int imgui_main()
 
 int main(int argc, const char* argv[]) {
     std::cout << "Hello World? (GUI) " << int(nine_or_null::do_the_thing() * 86400) << std::endl;
-    // google::InitGoogleLogging(argv[0]);
-    // LOG(INFO) << "Hello World! (GUI) " << int(nine_or_null::do_the_thing() * 86400);
     
     return imgui_main();
 }

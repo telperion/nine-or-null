@@ -1,13 +1,12 @@
 #include <iostream>
-
-#include <glog/logging.h>
+#include <filesystem>
 
 #include "nine_or_null/nine_or_null.h"
 
 int main(int argc, const char* argv[]) {
-    std::cout << "Hello World? (CLI) " << int(nine_or_null::do_the_thing() * 86400) << std::endl;
-    //google::InitGoogleLogging(argv[0]);
-    //LOG(INFO) << "Hello World! (CLI) " << int(nine_or_null::do_the_thing() * 86400);
+    std::filesystem::path path(argv[0]);
+    std::cerr << argv[0] << std::endl;
+    std::cerr << "Hello World! (CLI) " << int(nine_or_null::do_the_thing() * 86400) << std::endl;
 
     return 0;
 }
