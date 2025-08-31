@@ -90,12 +90,24 @@ int imgui_main()
     GLuint texture;
     nine_or_null::Wave wave;
     std::ifstream fp;
-    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\Cmin7_s24le.wav", std::ios::in | std::ios::binary);
+    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\Dull Blade.wav", std::ios::in | std::ios::binary);
     fp >> wave;
     fp.close();
     std::cout << wave;
 
-    Spectrogram gram = create_spectrogram(wave, 8, 1 << 4, 1.0f);
+    nine_or_null::WaveData data;
+    wave.fill(data, 0);
+    nine_or_null::WaveData partial(
+        data.begin() + wave.wave_fmt_chunk().nSamplesPerSec * 20,
+        data.begin() + wave.wave_fmt_chunk().nSamplesPerSec * 30
+    );
+
+    Spectrogram gram = create_spectrogram(
+        partial, 
+        12, 
+        441, 
+        1.0f
+    );
     bool gram_success = prepare_texture(
         texture, 
         gram.image_data, 

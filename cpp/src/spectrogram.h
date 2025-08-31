@@ -39,7 +39,7 @@ bool prepare_texture(
 );
 
 Spectrogram create_spectrogram(
-    const nine_or_null::Wave &wave,
+    const nine_or_null::WaveData &data,
     int window_size,
     int stride,
     float scale

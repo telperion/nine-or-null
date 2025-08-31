@@ -1,3 +1,4 @@
+#include <cmath>
 #include <memory>
 #define GL_SILENCE_DEPRECATION
 #include <GLFW/glfw3.h>
@@ -49,32 +50,29 @@ uint32_t heatmap(float v) {
     if (v < 0) {
         return 0xFF000000;
     }
-    if (v < 0.3) {
-        return 0xFF000000 + int(0xFF * v / 0.3);
+    if (v < 0.1) {
+        return 0xFF000000 + int(0xFF * v / 0.1);
     }
-    if (v < 0.7) {
-        return 0xFF0000FF + (int(0xFF * (v - 0.3) / 0.4) << 8);
+    if (v < 0.4) {
+        return 0xFF0000FF + (int(0xFF * (v - 0.1) / 0.3) << 8);
     }
     if (v < 1.0) {
-        return 0xFF00FFFF + (int(0xFF * (v - 0.7) / 0.3) << 16);
+        return 0xFF00FFFF + (int(0xFF * (v - 0.4) / 0.6) << 16);
     }
     return 0xFFFFFFFF;
 }
 
 
 Spectrogram create_spectrogram(
-    const nine_or_null::Wave &wave,
+    const nine_or_null::WaveData &data,
     int window_size,
     int stride,
     float scale
  ) {
-    nine_or_null::WaveData data;
-    wave.fill(data, 0);
-
     nine_or_null::Signal signal;
     signal.reserve(data.size());
-    for (int i = 0; i < data.size(); i++) {
-        signal.push_back(data[i]);
+    for (auto d : data) {
+        signal.push_back(d);
     }
 
     nine_or_null::Window window;
@@ -88,6 +86,7 @@ Spectrogram create_spectrogram(
     );
 
     int j = 0;
+    float max_data = 1e-12;
     for (int center_index = window_half; center_index < signal.size() - window_half; center_index += stride, ++j) {
         if (j >= gram.width) {
             break;
@@ -99,16 +98,23 @@ Spectrogram create_spectrogram(
             window,
             center_index
         );
+        // dst.clear();
+        // dst.reserve(window_half * 2 - 1);
+        // for (int i = center_index - window_half; i <= center_index + window_half; ++i) {
+        //     dst.push_back(signal[center_index]);
+        // }
 
-        float max_data = 1e-12;
         for (int i = 0; i < gram.height; ++i) {
-            size_t pixel_index = i + j * gram.height;
-            float pixel_data = norm_squared(dst[i]);
+            size_t pixel_index = i * gram.width + j;
+            float pixel_data = std::sqrtf(norm_squared(dst[i]));
             gram.data[pixel_index] = pixel_data;
             max_data = (max_data > pixel_data) ? max_data : pixel_data;
         }
+    }
+
+    for (int j = 0; j < gram.width; ++j) {
         for (int i = 0; i < gram.height; ++i) {
-            size_t pixel_index = i + j * gram.height;
+            size_t pixel_index = i * gram.width + j;
             uint32_t pixel = heatmap(gram.data[pixel_index] / max_data);
 
             for (int k = 0; k < 4; ++k) {

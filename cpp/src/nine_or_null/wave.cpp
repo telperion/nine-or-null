@@ -79,7 +79,7 @@ namespace nine_or_null {
                 std::unique_ptr<char[]> throwaway = std::make_unique<char[]>(chunk.cksize + chunk.cksize % 2);
                 _WAVE_READ(reinterpret_cast<char*>(throwaway.get()), chunk.cksize + chunk.cksize % 2);
             }
-            
+
             _WAVE_READ(reinterpret_cast<char*>(&chunk), sizeof(WaveChunkHeader));
         }
 
@@ -134,12 +134,12 @@ namespace nine_or_null {
         switch (_wave_fmt_chunk.wFormatTag) {
             case WaveFormat::WAVE_FORMAT_PCM:
                 for (int i = 0; i < _dwSampleLength; ++i) {
-                    float acc = 0;
                     size_t offset = i * stride + channel * bps;
-                    for (int j = 0; j < bps; ++j) {
-                        acc = acc * 8 + _samples[offset + j];
-                    }
-                    dst.push_back(acc);
+                    size_t sign_align = 32 - _wave_fmt_chunk.wBitsPerSample;
+                    int32_t acc = *reinterpret_cast<int32_t*>(_samples.get() + offset);
+                    acc <<= sign_align;
+                    acc >>= sign_align;
+                    dst.push_back(float(acc));
                 }
             break;
             case WaveFormat::WAVE_FORMAT_IEEE_FLOAT:
