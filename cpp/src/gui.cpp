@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 
 // example code begin
 #include <imgui.h>
@@ -12,6 +13,7 @@
 // example code end
 
 #include "nine_or_null/nine_or_null.h"
+#include "spectrogram.h"
 
 // example code begin
 static void glfw_error_callback(int error, const char* description)
@@ -85,6 +87,23 @@ int imgui_main()
     bool show_another_window = false;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
+    GLuint texture;
+    nine_or_null::Wave wave;
+    std::ifstream fp;
+    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\Cmin7_s24le.wav", std::ios::in | std::ios::binary);
+    fp >> wave;
+    fp.close();
+    std::cout << wave;
+
+    Spectrogram gram = create_spectrogram(wave, 8, 1 << 4, 1.0f);
+    bool gram_success = prepare_texture(
+        texture, 
+        gram.image_data, 
+        gram.image_size(), 
+        gram.width, 
+        gram.height
+    );
+
     while (!glfwWindowShouldClose(window))
     {
         // Poll and handle events (inputs, window resize, etc.)
@@ -136,6 +155,14 @@ int imgui_main()
         {
             ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
             ImGui::Text("Hello from another window!");
+            if (gram_success) {
+                ImGui::Text("pointer = %x", texture);
+                ImGui::Text("size = %d x %d", gram.width, gram.height);
+                ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(gram.width, gram.height));
+            }
+            else {
+                ImGui::Text("Couldn't make spectrogram");
+            }
             if (ImGui::Button("Close Me"))
                 show_another_window = false;
             ImGui::End();

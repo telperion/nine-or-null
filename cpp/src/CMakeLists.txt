@@ -1,7 +1,10 @@
 add_subdirectory(nine_or_null)
 
 add_executable(cli cli.cpp)
-add_executable(gui gui.cpp)
+add_executable(gui
+	gui.cpp
+	spectrogram.cpp
+)
 
 add_dependencies(cli nine_or_null)
 add_dependencies(gui nine_or_null)
