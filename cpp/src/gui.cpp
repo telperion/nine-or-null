@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include "nine_or_null/fft.h"
 
 // example code begin
 #include <imgui.h>
@@ -90,30 +91,30 @@ int imgui_main()
     GLuint texture;
     nine_or_null::Wave wave;
     std::ifstream fp;
-    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\Dull Blade.wav", std::ios::in | std::ios::binary);
+    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\universtep.wav", std::ios::in | std::ios::binary);
     fp >> wave;
     fp.close();
     std::cout << wave;
 
     nine_or_null::WaveData data;
     wave.fill(data, 0);
-    nine_or_null::WaveData partial(
-        data.begin() + wave.wave_fmt_chunk().nSamplesPerSec * 20,
-        data.begin() + wave.wave_fmt_chunk().nSamplesPerSec * 30
-    );
+    
+    float sample_rate = wave.wave_fmt_chunk().nSamplesPerSec;
+    float t_start = 0.0f;
+    float t_end = 10.0f;
+    size_t window_size = 8;
+    size_t stride = 441;
+    size_t reduce_rate = 50;
 
-    Spectrogram gram = create_spectrogram(
-        partial, 
-        12, 
-        441, 
-        1.0f
+    nine_or_null::WaveData initial_data(
+        data.begin() + size_t(sample_rate * t_start),
+        data.begin() + size_t(sample_rate * t_end)
     );
-    bool gram_success = prepare_texture(
-        texture, 
-        gram.image_data, 
-        gram.image_size(), 
-        gram.width, 
-        gram.height
+    Spectrogram gram = create_spectrogram(
+        initial_data, 
+        window_size,
+        stride,
+        reduce_rate
     );
 
     while (!glfwWindowShouldClose(window))
@@ -167,10 +168,114 @@ int imgui_main()
         {
             ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
             ImGui::Text("Hello from another window!");
+
+            bool gram_success = true;
+            bool needs_update = false;
+
+            static float t_start_new = t_start;
+            static float t_end_new = t_end;
+            static int window_size_new = window_size;
+            static float stride_new_f = stride / sample_rate;
+            static int stride_new = 1;
+            static int reduce_rate_new = reduce_rate;
+            
+            ImGui::SliderFloat("t_0", &t_start_new, 0.0f, wave.length(), "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (t_start_new != t_start && t_start_new < t_end) {
+                    t_start = t_start_new;
+                    needs_update = true;
+                }
+                else {
+                    t_start_new = t_start;
+                }
+            }
+
+            ImGui::SliderFloat("t_f", &t_end_new, 0.0f, wave.length(), "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (t_end_new != t_end && t_end_new > t_start) {
+                    t_end = t_end_new;
+                    needs_update = true;
+                }
+                else {
+                    t_end_new = t_end;
+                }
+            }
+
+            ImGui::SliderInt("Window size", &window_size_new, 4, 16, "%d bits", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (window_size_new != window_size) {
+                    window_size = window_size_new;
+                    needs_update = true;
+                }
+            }
+
+            ImGui::SliderFloat("Stride", &stride_new_f, 0.001f, 1.0f, "%0.6f seconds", ImGuiSliderFlags_AlwaysClamp);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                stride_new_f = (stride_new_f < 0.001f) ? 0.001f : ((stride_new_f > 1.0f) ? 1.0f : stride_new_f);
+                stride_new = int(stride_new_f * sample_rate);
+                if (stride_new != stride) {
+                    stride = stride_new;
+                    stride_new_f = stride_new / sample_rate;
+                    needs_update = true;
+                }
+                else {
+                    stride_new_f = stride_new / sample_rate;
+                }
+            }
+
+            ImGui::InputInt("Reduce sampling rate", &reduce_rate_new, 1, 10);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                if (
+                    reduce_rate_new != reduce_rate &&
+                    reduce_rate_new >= 1 &&
+                    reduce_rate_new <= 100
+                ) {
+                    reduce_rate = reduce_rate_new;
+                    needs_update = true;
+                }
+                else {
+                    reduce_rate_new = reduce_rate;
+                }
+            }
+
+            if (needs_update) {
+                nine_or_null::WaveData partial(
+                    data.begin() + size_t(sample_rate * t_start),
+                    data.begin() + size_t(sample_rate * t_end)
+                );
+                gram = create_spectrogram(
+                    partial, 
+                    window_size,
+                    stride,
+                    reduce_rate
+                );
+                gram_success = update_texture(
+                    texture,
+                    gram
+                );
+            }
             if (gram_success) {
                 ImGui::Text("pointer = %x", texture);
-                ImGui::Text("size = %d x %d", gram.width, gram.height);
+                ImGui::Text("size = %zu x %zu", gram.width, gram.height);
+                auto pos = ImGui::GetCursorScreenPos();
                 ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(gram.width, gram.height));
+                if (ImGui::IsItemHovered())
+                {
+                    size_t x = size_t(io.MousePos.x - pos.x);
+                    size_t y = size_t(io.MousePos.y - pos.y);
+                    float x_center_time = float(x * stride) / float(sample_rate);
+                    float y_freq_tap = nine_or_null::tap(
+                        y,
+                        (2 << window_size) + 1,
+                        sample_rate,
+                        reduce_rate
+                    );
+                    ImGui::BeginTooltip();
+                    ImGui::Text("x = %zu (t = %0.6f)", x, x_center_time);
+                    ImGui::Text("y = %zu (f = %0.3f)", y, y_freq_tap);
+                    ImGui::Text("z = %0.3f", gram.data[y * gram.width + x]);
+                    ImGui::EndTooltip();
+                }
             }
             else {
                 ImGui::Text("Couldn't make spectrogram");

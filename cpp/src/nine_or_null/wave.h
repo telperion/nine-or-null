@@ -76,6 +76,10 @@ namespace nine_or_null {
                 return _dwSampleLength;
             }
 
+            auto length() const {
+                return float(_dwSampleLength) / float(_wave_fmt_chunk.nSamplesPerSec);
+            }
+
             void fill(WaveData &dst, int channel) const;
 
 

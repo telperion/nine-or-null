@@ -13,14 +13,19 @@ float norm_squared(nine_or_null::CC v) {
 }
 
 bool prepare_texture(
-    GLuint &texture,
-    std::shared_ptr<char[]> data,
-    size_t data_size,
-    int width,
-    int height
+    GLuint &texture
 ) {
     // Create an OpenGL texture identifier
     glGenTextures(1, &texture);
+
+    return true;
+}
+
+bool update_texture(
+    GLuint texture,
+    const Spectrogram &gram
+) {
+    // Create an OpenGL texture identifier
     glBindTexture(GL_TEXTURE_2D, texture);
     
     // Set up filtering parameters
@@ -33,12 +38,12 @@ bool prepare_texture(
         GL_TEXTURE_2D, 
         0, 
         GL_RGBA, 
-        width, 
-        height,
+        gram.width, 
+        gram.height,
         0,
         GL_RGBA, 
         GL_UNSIGNED_BYTE,
-        data.get()
+        gram.image_data.get()
     );
 
     return true;
@@ -65,9 +70,9 @@ uint32_t heatmap(float v) {
 
 Spectrogram create_spectrogram(
     const nine_or_null::WaveData &data,
-    int window_size,
-    int stride,
-    float scale
+    size_t window_size,
+    size_t stride,
+    size_t reduce_rate
  ) {
     nine_or_null::Signal signal;
     signal.reserve(data.size());
@@ -77,7 +82,7 @@ Spectrogram create_spectrogram(
 
     nine_or_null::Window window;
     nine_or_null::hann(window, window_size);
-    int window_half = (window.size() - 1) / 2;
+    size_t window_half = (window.size() - 1) / 2;
 
     Spectrogram gram(
         (signal.size() - window.size()) / stride,
@@ -85,9 +90,9 @@ Spectrogram create_spectrogram(
         4   // RGBA
     );
 
-    int j = 0;
+    size_t j = 0;
     float max_data = 1e-12;
-    for (int center_index = window_half; center_index < signal.size() - window_half; center_index += stride, ++j) {
+    for (size_t center_index = 0; center_index < signal.size(); center_index += stride, ++j) {
         if (j >= gram.width) {
             break;
         }
@@ -96,7 +101,8 @@ Spectrogram create_spectrogram(
             dst,
             signal,
             window,
-            center_index
+            center_index,
+            reduce_rate
         );
         // dst.clear();
         // dst.reserve(window_half * 2 - 1);
@@ -104,7 +110,7 @@ Spectrogram create_spectrogram(
         //     dst.push_back(signal[center_index]);
         // }
 
-        for (int i = 0; i < gram.height; ++i) {
+        for (size_t i = 0; i < gram.height; ++i) {
             size_t pixel_index = i * gram.width + j;
             float pixel_data = std::sqrtf(norm_squared(dst[i]));
             gram.data[pixel_index] = pixel_data;
@@ -112,12 +118,12 @@ Spectrogram create_spectrogram(
         }
     }
 
-    for (int j = 0; j < gram.width; ++j) {
-        for (int i = 0; i < gram.height; ++i) {
+    for (size_t j = 0; j < gram.width; ++j) {
+        for (size_t i = 0; i < gram.height; ++i) {
             size_t pixel_index = i * gram.width + j;
             uint32_t pixel = heatmap(gram.data[pixel_index] / max_data);
 
-            for (int k = 0; k < 4; ++k) {
+            for (size_t k = 0; k < 4; ++k) {
                 gram.image_data[4*pixel_index + k] = (pixel >> (8 * k)) & 0xFF;
             }
         }

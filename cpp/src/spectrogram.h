@@ -10,11 +10,11 @@
 struct Spectrogram {
     std::shared_ptr<float[]> data;
     std::shared_ptr<char[]> image_data;
-    int width;
-    int height;
-    int depth;
+    size_t width;
+    size_t height;
+    size_t depth;
 
-    Spectrogram(int w, int h, int d) :
+    Spectrogram(size_t w, size_t h, size_t d) :
         width(w),
         height(h),
         depth(d),
@@ -22,26 +22,25 @@ struct Spectrogram {
         image_data(new char[w*h*d])
     {}
 
-    int data_size() {
+    size_t data_size() {
         return width * height;
     }
-    int image_size() {
+    size_t image_size() {
         return width * height * depth;
     }
 };
 
-bool prepare_texture(
-    GLuint &texture,
-    std::shared_ptr<char[]> data,
-    size_t data_size,
-    int width,
-    int height
+bool prepare_texture(GLuint &texture);
+
+bool update_texture(
+    GLuint texture,
+    const Spectrogram &gram
 );
 
 Spectrogram create_spectrogram(
     const nine_or_null::WaveData &data,
-    int window_size,
-    int stride,
-    float scale
+    size_t window_size,
+    size_t stride,
+    size_t reduce_rate
 );
 
