@@ -1,5 +1,7 @@
 #include <iostream>
 #include <fstream>
+#include <vector>
+#include "imgui_internal.h"
 #include "nine_or_null/fft.h"
 
 // example code begin
@@ -15,6 +17,16 @@
 
 #include "nine_or_null/nine_or_null.h"
 #include "spectrogram.h"
+
+struct Event {
+    float beat;
+    float value;
+
+    Event(float b, float v) :
+        beat(b),
+        value(v)
+        {}
+};
 
 // example code begin
 static void glfw_error_callback(int error, const char* description)
@@ -86,6 +98,7 @@ int imgui_main()
     // Our state
     bool show_demo_window = true;
     bool show_another_window = false;
+    bool show_9on_window = true;
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
     GLuint texture;
@@ -100,11 +113,11 @@ int imgui_main()
     wave.fill(data, 0);
     
     float sample_rate = wave.wave_fmt_chunk().nSamplesPerSec;
-    float t_start = 0.0f;
-    float t_end = 10.0f;
+    float t_start = 15.0f;
+    float t_end = 16.0f;
     size_t window_size = 8;
-    size_t stride = 441;
-    size_t reduce_rate = 50;
+    size_t stride = 44;
+    size_t reduce_rate = 12;
 
     nine_or_null::WaveData initial_data(
         data.begin() + size_t(sample_rate * t_start),
@@ -116,6 +129,17 @@ int imgui_main()
         stride,
         reduce_rate
     );
+    prepare_texture(texture);
+    bool gram_success = update_texture(
+        texture,
+        gram
+    );
+
+
+    // 9oN state
+    std::vector<Event> bpm_data(6, Event(0.0f, 0.0f));
+    std::vector<Event> stop_data(6, Event(0.0f, 0.0f));;
+    
 
     while (!glfwWindowShouldClose(window))
     {
@@ -169,7 +193,6 @@ int imgui_main()
             ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
             ImGui::Text("Hello from another window!");
 
-            bool gram_success = true;
             bool needs_update = false;
 
             static float t_start_new = t_start;
@@ -283,6 +306,113 @@ int imgui_main()
             if (ImGui::Button("Close Me"))
                 show_another_window = false;
             ImGui::End();
+        }
+        
+        if (show_9on_window)
+        {
+            ImGuiWindowFlags window_flags = (
+                ImGuiWindowFlags_HorizontalScrollbar                
+            );
+
+            {
+                ImGui::SetNextItemWidth(300);
+                ImGui::BeginGroup();
+                ImGui::Text("BPMs");
+                {
+                    ImGui::BeginChild("BPMList", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), ImGuiChildFlags_Borders, window_flags);
+                    for (int i = 0; i < bpm_data.size(); i++)
+                    {
+                        char beat_buf[32];
+                        sprintf(beat_buf, "%06.3f", float(i));
+                        char bpm_buf[32];
+                        sprintf(bpm_buf, "%06.3f", float(i));
+                        {
+                            ImGui::BeginGroup();
+                            ImGui::PushID(("##BPM##AddAbove##" + std::to_string(i)).c_str());
+                            ImGui::Button("++ ^^");
+                            ImGui::PopID();
+                            ImGui::PushID(("##BPM##AddBelow##" + std::to_string(i)).c_str());
+                            ImGui::Button("++ vv");
+                            ImGui::PopID();
+                            ImGui::EndGroup();
+                        }
+                        ImVec2 size = ImGui::GetItemRectSize();
+                        float w = 80; // (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.3f;
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::DragFloat(("##BPM##Beat##" + std::to_string(i)).c_str(), &bpm_data[i].beat, 1.0f, 0.0f, 100000.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::DragFloat(("##BPM##BPM##" + std::to_string(i)).c_str(), &bpm_data[i].value, 1.0f, -10.0f, 10.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        ImGui::SameLine();
+                        ImGui::PushID(("##BPM##Remove##" + std::to_string(i)).c_str());
+                        ImGui::Button("<< --", size);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndChild();
+                }
+                ImGui::Text("Stops");
+                {
+                    ImGui::BeginChild("StopList", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), ImGuiChildFlags_Borders, window_flags);
+                    for (int i = 0; i < stop_data.size(); i++)
+                    {
+                        {
+                            ImGui::BeginGroup();
+                            ImGui::PushID(("##Stop##AddAbove##" + std::to_string(i)).c_str());
+                            ImGui::Button("++ ^^");
+                            ImGui::PopID();
+                            ImGui::PushID(("##Stop##AddBelow##" + std::to_string(i)).c_str());
+                            ImGui::Button("++ vv");
+                            ImGui::PopID();
+                            ImGui::EndGroup();
+                        }
+                        ImVec2 size = ImGui::GetItemRectSize();
+                        float w = 80; // (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.3f;
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::DragFloat(("##Stop##Beat##" + std::to_string(i)).c_str(), &stop_data[i].beat, 1.0f, 0.0f, 100000.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(w);
+                        ImGui::DragFloat(("##Stop##Stop##" + std::to_string(i)).c_str(), &stop_data[i].value, 1.0f, -10.0f, 10.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        ImGui::SameLine();
+                        ImGui::PushID(("##Stop##Remove##" + std::to_string(i)).c_str());
+                        ImGui::Button("<< --", size);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndChild();
+                }
+                ImGui::EndGroup();
+            }
+            ImGui::SameLine();
+            { 
+                ImGui::BeginGroup();
+                ImGui::Text("Stacked Local Response");
+                if (gram_success) {
+                    ImGui::Text("pointer = %x", texture);
+                    ImGui::Text("size = %zu x %zu", gram.width, gram.height);
+                    auto pos = ImGui::GetCursorScreenPos();
+                    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(gram.width, gram.height));
+                    if (ImGui::IsItemHovered())
+                    {
+                        size_t x = size_t(io.MousePos.x - pos.x);
+                        size_t y = size_t(io.MousePos.y - pos.y);
+                        float x_center_time = float(x * stride) / float(sample_rate);
+                        float y_freq_tap = nine_or_null::tap(
+                            y,
+                            (2 << window_size) + 1,
+                            sample_rate,
+                            reduce_rate
+                        );
+                        ImGui::BeginTooltip();
+                        ImGui::Text("x = %zu (t = %0.6f)", x, x_center_time);
+                        ImGui::Text("y = %zu (f = %0.3f)", y, y_freq_tap);
+                        ImGui::Text("z = %0.3f", gram.data[y * gram.width + x]);
+                        ImGui::EndTooltip();
+                    }
+                }
+                ImGui::EndGroup();
+            }
+
         }
 
         // Rendering
