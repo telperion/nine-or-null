@@ -176,6 +176,11 @@ int imgui_main()
     fp >> simfile;
     fp.close();
     std::cout << simfile;
+
+    nine_or_null::StackedLocalResponse slr;
+    slr.metadata(wave);
+    slr.stack_local_response(data, simfile);
+    slr.update_texture(texture);
     
 
     while (!glfwWindowShouldClose(window))
@@ -404,9 +409,9 @@ int imgui_main()
                 ImGui::Text("Stacked Local Response");
                 if (gram_success) {
                     ImGui::Text("pointer = %x", texture);
-                    ImGui::Text("size = %zu x %zu", gram.width, gram.height);
+                    ImGui::Text("size = %zu x %zu", slr.slr[0].size(), slr.slr.size());
                     auto pos = ImGui::GetCursorScreenPos();
-                    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(gram.width, gram.height));
+                    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(slr.slr[0].size(), slr.slr.size()));
                     if (ImGui::IsItemHovered())
                     {
                         size_t x = size_t(io.MousePos.x - pos.x);

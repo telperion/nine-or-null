@@ -54,11 +54,11 @@ namespace nine_or_null {
 
             }
 
-            const WaveFmtChunk& wave_fmt_chunk() {
+            const WaveFmtChunk& wave_fmt_chunk() const {
                 return _wave_fmt_chunk;
             }
 
-            const WaveFmtChunkExt& wave_fmt_chunk_ext() {
+            const WaveFmtChunkExt& wave_fmt_chunk_ext() const {
                 return _wave_fmt_chunk_ext;
             }
 
