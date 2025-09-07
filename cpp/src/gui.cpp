@@ -18,15 +18,49 @@
 #include "nine_or_null/nine_or_null.h"
 #include "spectrogram.h"
 
-struct Event {
-    float beat;
-    float value;
-
-    Event(float b, float v) :
-        beat(b),
-        value(v)
-        {}
-};
+auto fmt = fmt_precision();
+const double step = double(1.0 / _DIV_PRECISION);
+const double minor_min = -1000.0;
+const double minor_max = 1000.0;
+const double major_min = -1000000.0;
+const double major_max = 1000000.0;
+#define CTRL_DOUBLE(label, var, minor_or_major) \
+    ImGui::DragScalar( \
+        label, \
+        ImGuiDataType_Double, \
+        &var, \
+        step, \
+        &minor_or_major##_min, \
+        &minor_or_major##_max, \
+        fmt.c_str(), \
+        ImGuiSliderFlags_AlwaysClamp \
+    )
+#define LOCK_BEAT(label, var, minor_or_major) \
+    CTRL_DOUBLE(label, var, minor_or_major); \
+    if (!ImGui::IsItemActive() && ImGui::IsItemDeactivatedAfterEdit()) { \
+        var = BeatFraction(var); \
+    }
+#define LOCK_VALUE(label, var, minor_or_major) \
+    CTRL_DOUBLE(label, var, minor_or_major); \
+    if (!ImGui::IsItemActive() && ImGui::IsItemDeactivatedAfterEdit()) { \
+        var = to_precision(var); \
+    }
+#define EVENT_VECTOR_ADD_BUTTON(label_stem, text, vec, index) \
+    ImGui::PushID((std::string(label_stem) + "##AddAbove##" + std::to_string(index)).c_str()); \
+    if (ImGui::Button(text)) { \
+        if (index == 0) { \
+            vec.emplace(vec.begin(), 0, 0); \
+        } else { \
+            vec.emplace(vec.begin() + index, vec[index-1].beat, vec[index-1].value);\
+        } \
+    } \
+    ImGui::PopID()
+#define EVENT_VECTOR_DELETE_BUTTON(label_stem, text, vec, index) \
+    ImGui::PushID((std::string(label_stem) + "##Delete##" + std::to_string(index)).c_str()); \
+    if (ImGui::Button(text)) { \
+        vec.erase(vec.begin() + index); \
+    } \
+    ImGui::PopID()
 
 // example code begin
 static void glfw_error_callback(int error, const char* description)
@@ -104,7 +138,7 @@ int imgui_main()
     GLuint texture;
     nine_or_null::Wave wave;
     std::ifstream fp;
-    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\universtep.wav", std::ios::in | std::ios::binary);
+    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\ADONIS.wav", std::ios::in | std::ios::binary);
     fp >> wave;
     fp.close();
     std::cout << wave;
@@ -114,9 +148,9 @@ int imgui_main()
     
     float sample_rate = wave.wave_fmt_chunk().nSamplesPerSec;
     float t_start = 15.0f;
-    float t_end = 16.0f;
+    float t_end = 20.0f;
     size_t window_size = 8;
-    size_t stride = 44;
+    size_t stride = 441;
     size_t reduce_rate = 12;
 
     nine_or_null::WaveData initial_data(
@@ -137,8 +171,11 @@ int imgui_main()
 
 
     // 9oN state
-    std::vector<Event> bpm_data(6, Event(0.0f, 0.0f));
-    std::vector<Event> stop_data(6, Event(0.0f, 0.0f));;
+    Simfile simfile;
+    fp.open("C:\\Users\\telpi\\Documents\\GitHub\\nine-or-null\\cpp\\src\\ADONIS.ssc", std::ios::in);
+    fp >> simfile;
+    fp.close();
+    std::cout << simfile;
     
 
     while (!glfwWindowShouldClose(window))
@@ -313,72 +350,50 @@ int imgui_main()
             ImGuiWindowFlags window_flags = (
                 ImGuiWindowFlags_HorizontalScrollbar                
             );
-
             {
-                ImGui::SetNextItemWidth(300);
                 ImGui::BeginGroup();
+                float w = 80; // (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.3f;
+
+                ImGui::SetNextItemWidth(w);
+                LOCK_VALUE("Beat 0 Offset", simfile.offset, minor);
+
                 ImGui::Text("BPMs");
+                float side_panel_height = (ImGui::GetContentRegionAvail().y - ImGui::GetStyle().ItemSpacing.y - ImGui::GetTextLineHeightWithSpacing()) * 0.5f;
                 {
-                    ImGui::BeginChild("BPMList", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), ImGuiChildFlags_Borders, window_flags);
-                    for (int i = 0; i < bpm_data.size(); i++)
+                    ImGui::BeginChild("BPMList", ImVec2(300, side_panel_height), ImGuiChildFlags_Borders, window_flags);
+                    for (int i = 0; i < simfile.bpms.size(); i++)
                     {
-                        char beat_buf[32];
-                        sprintf(beat_buf, "%06.3f", float(i));
-                        char bpm_buf[32];
-                        sprintf(bpm_buf, "%06.3f", float(i));
-                        {
-                            ImGui::BeginGroup();
-                            ImGui::PushID(("##BPM##AddAbove##" + std::to_string(i)).c_str());
-                            ImGui::Button("++ ^^");
-                            ImGui::PopID();
-                            ImGui::PushID(("##BPM##AddBelow##" + std::to_string(i)).c_str());
-                            ImGui::Button("++ vv");
-                            ImGui::PopID();
-                            ImGui::EndGroup();
-                        }
+                        EVENT_VECTOR_ADD_BUTTON("##BPM", "++ ^^", simfile.bpms, i);
                         ImVec2 size = ImGui::GetItemRectSize();
-                        float w = 80; // (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.3f;
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(w);
-                        ImGui::DragFloat(("##BPM##Beat##" + std::to_string(i)).c_str(), &bpm_data[i].beat, 1.0f, 0.0f, 100000.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        LOCK_BEAT(("##BPM##Beat##" + std::to_string(i)).c_str(), simfile.bpms[i].beat, major);
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(w);
-                        ImGui::DragFloat(("##BPM##BPM##" + std::to_string(i)).c_str(), &bpm_data[i].value, 1.0f, -10.0f, 10.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        LOCK_VALUE(("##BPM##BPM##" + std::to_string(i)).c_str(), simfile.bpms[i].value, major);
                         ImGui::SameLine();
-                        ImGui::PushID(("##BPM##Remove##" + std::to_string(i)).c_str());
-                        ImGui::Button("<< --", size);
-                        ImGui::PopID();
+                        EVENT_VECTOR_DELETE_BUTTON("##BPM", "<< --", simfile.bpms, i);
                     }
+                    EVENT_VECTOR_ADD_BUTTON("##BPM", "++ ..", simfile.bpms, simfile.bpms.size());
                     ImGui::EndChild();
                 }
                 ImGui::Text("Stops");
                 {
-                    ImGui::BeginChild("StopList", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 260), ImGuiChildFlags_Borders, window_flags);
-                    for (int i = 0; i < stop_data.size(); i++)
+                    ImGui::BeginChild("StopList", ImVec2(300, side_panel_height), ImGuiChildFlags_Borders, window_flags);
+                    for (int i = 0; i < simfile.stops.size(); i++)
                     {
-                        {
-                            ImGui::BeginGroup();
-                            ImGui::PushID(("##Stop##AddAbove##" + std::to_string(i)).c_str());
-                            ImGui::Button("++ ^^");
-                            ImGui::PopID();
-                            ImGui::PushID(("##Stop##AddBelow##" + std::to_string(i)).c_str());
-                            ImGui::Button("++ vv");
-                            ImGui::PopID();
-                            ImGui::EndGroup();
-                        }
+                        EVENT_VECTOR_ADD_BUTTON("##Stop", "++ ^^", simfile.stops, i);
                         ImVec2 size = ImGui::GetItemRectSize();
-                        float w = 80; // (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.3f;
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(w);
-                        ImGui::DragFloat(("##Stop##Beat##" + std::to_string(i)).c_str(), &stop_data[i].beat, 1.0f, 0.0f, 100000.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        LOCK_BEAT(("##Stop##Beat##" + std::to_string(i)).c_str(), simfile.stops[i].beat, major);
                         ImGui::SameLine();
                         ImGui::SetNextItemWidth(w);
-                        ImGui::DragFloat(("##Stop##Stop##" + std::to_string(i)).c_str(), &stop_data[i].value, 1.0f, -10.0f, 10.0f, "%0.3f", ImGuiSliderFlags_AlwaysClamp);
+                        LOCK_VALUE(("##Stop##Stop##" + std::to_string(i)).c_str(), simfile.stops[i].value, major);
                         ImGui::SameLine();
-                        ImGui::PushID(("##Stop##Remove##" + std::to_string(i)).c_str());
-                        ImGui::Button("<< --", size);
-                        ImGui::PopID();
+                        EVENT_VECTOR_DELETE_BUTTON("##Stop", "<< --", simfile.stops, i);
                     }
+                    EVENT_VECTOR_ADD_BUTTON("##Stop", "++ ^^", simfile.stops, simfile.stops.size());
                     ImGui::EndChild();
                 }
                 ImGui::EndGroup();

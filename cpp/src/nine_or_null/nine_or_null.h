@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "fft.h"
+#include "simfile.h"
 #include "wave.h"
 
 namespace nine_or_null {
