@@ -39,11 +39,13 @@ const double major_max = 1000000.0;
     CTRL_DOUBLE(label, var, minor_or_major); \
     if (!ImGui::IsItemActive() && ImGui::IsItemDeactivatedAfterEdit()) { \
         var = BeatFraction(var); \
+        simfile.set_dirty(); \
     }
 #define LOCK_VALUE(label, var, minor_or_major) \
     CTRL_DOUBLE(label, var, minor_or_major); \
     if (!ImGui::IsItemActive() && ImGui::IsItemDeactivatedAfterEdit()) { \
         var = to_precision(var); \
+        simfile.set_dirty(); \
     }
 #define EVENT_VECTOR_ADD_BUTTON(label_stem, text, vec, index) \
     ImGui::PushID((std::string(label_stem) + "##AddAbove##" + std::to_string(index)).c_str()); \
@@ -53,12 +55,14 @@ const double major_max = 1000000.0;
         } else { \
             vec.emplace(vec.begin() + index, vec[index-1].beat, vec[index-1].value);\
         } \
+        simfile.set_dirty(); \
     } \
     ImGui::PopID()
 #define EVENT_VECTOR_DELETE_BUTTON(label_stem, text, vec, index) \
     ImGui::PushID((std::string(label_stem) + "##Delete##" + std::to_string(index)).c_str()); \
     if (ImGui::Button(text)) { \
         vec.erase(vec.begin() + index); \
+        simfile.set_dirty(); \
     } \
     ImGui::PopID()
 
@@ -145,30 +149,7 @@ int imgui_main()
 
     nine_or_null::WaveData data;
     wave.fill(data, 0);
-    
-    float sample_rate = wave.wave_fmt_chunk().nSamplesPerSec;
-    float t_start = 15.0f;
-    float t_end = 20.0f;
-    size_t window_size = 8;
-    size_t stride = 441;
-    size_t reduce_rate = 12;
-
-    nine_or_null::WaveData initial_data(
-        data.begin() + size_t(sample_rate * t_start),
-        data.begin() + size_t(sample_rate * t_end)
-    );
-    Spectrogram gram = create_spectrogram(
-        initial_data, 
-        window_size,
-        stride,
-        reduce_rate
-    );
     prepare_texture(texture);
-    bool gram_success = update_texture(
-        texture,
-        gram
-    );
-
 
     // 9oN state
     Simfile simfile;
@@ -176,12 +157,11 @@ int imgui_main()
     fp >> simfile;
     fp.close();
     std::cout << simfile;
+    simfile.set_dirty();
 
     nine_or_null::StackedLocalResponse slr;
     slr.metadata(wave);
-    slr.stack_local_response(data, simfile);
-    slr.update_texture(texture);
-    
+       
 
     while (!glfwWindowShouldClose(window))
     {
@@ -226,127 +206,6 @@ int imgui_main()
             ImGui::Text("counter = %d", counter);
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
-            ImGui::End();
-        }
-
-        // 3. Show another simple window.
-        if (show_another_window)
-        {
-            ImGui::Begin("Another Window", &show_another_window);   // Pass a pointer to our bool variable (the window will have a closing button that will clear the bool when clicked)
-            ImGui::Text("Hello from another window!");
-
-            bool needs_update = false;
-
-            static float t_start_new = t_start;
-            static float t_end_new = t_end;
-            static int window_size_new = window_size;
-            static float stride_new_f = stride / sample_rate;
-            static int stride_new = 1;
-            static int reduce_rate_new = reduce_rate;
-            
-            ImGui::SliderFloat("t_0", &t_start_new, 0.0f, wave.length(), "%0.3f", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (t_start_new != t_start && t_start_new < t_end) {
-                    t_start = t_start_new;
-                    needs_update = true;
-                }
-                else {
-                    t_start_new = t_start;
-                }
-            }
-
-            ImGui::SliderFloat("t_f", &t_end_new, 0.0f, wave.length(), "%0.3f", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (t_end_new != t_end && t_end_new > t_start) {
-                    t_end = t_end_new;
-                    needs_update = true;
-                }
-                else {
-                    t_end_new = t_end;
-                }
-            }
-
-            ImGui::SliderInt("Window size", &window_size_new, 4, 16, "%d bits", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (window_size_new != window_size) {
-                    window_size = window_size_new;
-                    needs_update = true;
-                }
-            }
-
-            ImGui::SliderFloat("Stride", &stride_new_f, 0.001f, 1.0f, "%0.6f seconds", ImGuiSliderFlags_AlwaysClamp);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                stride_new_f = (stride_new_f < 0.001f) ? 0.001f : ((stride_new_f > 1.0f) ? 1.0f : stride_new_f);
-                stride_new = int(stride_new_f * sample_rate);
-                if (stride_new != stride) {
-                    stride = stride_new;
-                    stride_new_f = stride_new / sample_rate;
-                    needs_update = true;
-                }
-                else {
-                    stride_new_f = stride_new / sample_rate;
-                }
-            }
-
-            ImGui::InputInt("Reduce sampling rate", &reduce_rate_new, 1, 10);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                if (
-                    reduce_rate_new != reduce_rate &&
-                    reduce_rate_new >= 1 &&
-                    reduce_rate_new <= 100
-                ) {
-                    reduce_rate = reduce_rate_new;
-                    needs_update = true;
-                }
-                else {
-                    reduce_rate_new = reduce_rate;
-                }
-            }
-
-            if (needs_update) {
-                nine_or_null::WaveData partial(
-                    data.begin() + size_t(sample_rate * t_start),
-                    data.begin() + size_t(sample_rate * t_end)
-                );
-                gram = create_spectrogram(
-                    partial, 
-                    window_size,
-                    stride,
-                    reduce_rate
-                );
-                gram_success = update_texture(
-                    texture,
-                    gram
-                );
-            }
-            if (gram_success) {
-                ImGui::Text("pointer = %x", texture);
-                ImGui::Text("size = %zu x %zu", gram.width, gram.height);
-                auto pos = ImGui::GetCursorScreenPos();
-                ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(gram.width, gram.height));
-                if (ImGui::IsItemHovered())
-                {
-                    size_t x = size_t(io.MousePos.x - pos.x);
-                    size_t y = size_t(io.MousePos.y - pos.y);
-                    float x_center_time = float(x * stride) / float(sample_rate);
-                    float y_freq_tap = nine_or_null::tap(
-                        y,
-                        (2 << window_size) + 1,
-                        sample_rate,
-                        reduce_rate
-                    );
-                    ImGui::BeginTooltip();
-                    ImGui::Text("x = %zu (t = %0.6f)", x, x_center_time);
-                    ImGui::Text("y = %zu (f = %0.3f)", y, y_freq_tap);
-                    ImGui::Text("z = %0.3f", gram.data[y * gram.width + x]);
-                    ImGui::EndTooltip();
-                }
-            }
-            else {
-                ImGui::Text("Couldn't make spectrogram");
-            }
-            if (ImGui::Button("Close Me"))
-                show_another_window = false;
             ImGui::End();
         }
         
@@ -398,7 +257,7 @@ int imgui_main()
                         ImGui::SameLine();
                         EVENT_VECTOR_DELETE_BUTTON("##Stop", "<< --", simfile.stops, i);
                     }
-                    EVENT_VECTOR_ADD_BUTTON("##Stop", "++ ^^", simfile.stops, simfile.stops.size());
+                    EVENT_VECTOR_ADD_BUTTON("##Stop", "++ ..", simfile.stops, simfile.stops.size());
                     ImGui::EndChild();
                 }
                 ImGui::EndGroup();
@@ -407,26 +266,31 @@ int imgui_main()
             { 
                 ImGui::BeginGroup();
                 ImGui::Text("Stacked Local Response");
-                if (gram_success) {
+
+                if (simfile.is_dirty()) {
+                    simfile.cleanup(wave.length());
+                    slr.stack_local_response(data, simfile);
+                    slr.update_data();
+                    slr.update_texture(texture);
+                }
+                if (slr.ready) {
+                    auto data_width = slr.slr[0].size();
+                    auto data_height = slr.slr.size();
                     ImGui::Text("pointer = %x", texture);
-                    ImGui::Text("size = %zu x %zu", slr.slr[0].size(), slr.slr.size());
+                    ImGui::Text("size = %zu x %zu", data_width, data_height);
                     auto pos = ImGui::GetCursorScreenPos();
-                    ImGui::Image((ImTextureID)(intptr_t)texture, ImVec2(slr.slr[0].size(), slr.slr.size()));
+                    auto image_size = ImGui::GetContentRegionAvail();
+                    ImGui::Image((ImTextureID)(intptr_t)texture, image_size);
                     if (ImGui::IsItemHovered())
                     {
-                        size_t x = size_t(io.MousePos.x - pos.x);
-                        size_t y = size_t(io.MousePos.y - pos.y);
-                        float x_center_time = float(x * stride) / float(sample_rate);
-                        float y_freq_tap = nine_or_null::tap(
-                            y,
-                            (2 << window_size) + 1,
-                            sample_rate,
-                            reduce_rate
-                        );
+                        size_t x = size_t((io.MousePos.x - pos.x) * data_width / image_size.x);
+                        size_t y = size_t((io.MousePos.y - pos.y) * data_height / image_size.y);
+                        float x_local_time = slr.t_step * (float(x) - float(data_width) / 2);
+                        float y_beat_index = int(y);
                         ImGui::BeginTooltip();
-                        ImGui::Text("x = %zu (t = %0.6f)", x, x_center_time);
-                        ImGui::Text("y = %zu (f = %0.3f)", y, y_freq_tap);
-                        ImGui::Text("z = %0.3f", gram.data[y * gram.width + x]);
+                        ImGui::Text("x = %zu (local time %+0.6f)", x, x_local_time);
+                        ImGui::Text("y = %zu (beat index %0.3f)", y, y_beat_index);
+                        ImGui::Text("z = %0.3f", slr.value_data[y * data_width + x]);
                         ImGui::EndTooltip();
                     }
                 }

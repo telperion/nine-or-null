@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <numeric>
@@ -7,6 +8,10 @@
 #include <vector>
 #include <string>
 
+#define _MIN(a, b) (((a) < (b)) ? (a) : (b))
+#define _MAX(a, b) (((a) > (b)) ? (a) : (b))
+
+constexpr int _MAX_BEAT_SENTINEL = 1000000;
 constexpr int _MAX_QUANTIZATION = 48;
 constexpr int _MAX_PRECISION = 3;
 const double _DIV_PRECISION = std::pow(10, _MAX_PRECISION);
@@ -14,6 +19,8 @@ const double _DIV_PRECISION = std::pow(10, _MAX_PRECISION);
 
 const std::string fmt_precision();
 double to_precision(double v);
+
+using TimeAxis = std::vector<double>;
 
 struct BeatFraction {
     int64_t n;
@@ -29,6 +36,10 @@ struct BeatFraction {
 
     operator double() const {
         return to_precision(double(n) / double(d));
+    }
+
+    double exact() const {
+        return double(n) / double(d);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const BeatFraction& obj) {
@@ -66,6 +77,14 @@ struct Event {
         std::stringstream ss;
         ss << *this;
         return ss.str();
+    }
+
+    bool operator<(const Event& o) {
+        return double(beat) < double(o.beat);
+    }
+
+    double exact_beat() const {
+        return BeatFraction(beat).exact();
     }
 };
 
@@ -150,6 +169,94 @@ class Simfile {
             return os;
         }
 
+        const TimeAxis& get_beat_times() const {
+            return beat_times;
+        }
+
+        const TimeAxis& get_note_times() const {
+            return note_times;
+        }
+
+        void set_dirty() {
+            dirty = true;
+        }
+
+        bool is_dirty() const {
+            return dirty;
+        }
+
+        void sort() {
+            std::sort(bpms.begin(), bpms.end());
+            std::sort(stops.begin(), stops.end());
+        }
+
+        double beat_to_time(double beat) {
+            double exact_beat = BeatFraction(beat).exact();
+            double last_beat = 0.0;
+            double acc = offset;
+
+            if (bpms.empty()) {
+                // No BPMs at all??
+                return acc;
+            }
+            if (bpms[0].beat > 0) {
+                // First BPM occurs after beat zero??
+                return acc;
+            }
+
+            // Handle BPM changes
+            auto last_bpm_event = bpms[0];
+            for (auto event : bpms) {
+                auto event_beat = event.exact_beat();
+                if (event_beat > last_beat) {
+                    double next_beat = _MIN(event_beat, beat);
+                    next_beat = _MAX(next_beat, 0.0);
+                    
+                    acc += (next_beat - last_beat) * 60.0 / last_bpm_event.value;
+                    last_bpm_event = event;
+                    last_beat = next_beat;
+                }
+                if (event_beat > exact_beat) {
+                    break;
+                }
+            }
+            if (last_bpm_event.beat < beat) {
+                acc += (beat - last_bpm_event.beat) * 60.0 / last_bpm_event.value;
+            }
+
+            // Handle stops
+            for (auto event : stops) {
+                if (event.exact_beat() < exact_beat) {
+                    // Non-inclusive (note @ beat registers)
+                    acc += event.value;
+                }
+            }
+
+            return acc;
+        }
+
+        void calculate_times(const double max_time) {
+            beat_times.clear();
+            for (int i = 0; i < _MAX_BEAT_SENTINEL; ++i) {
+                auto t = beat_to_time(i);
+                if (t > max_time) {
+                    break;
+                }
+                beat_times.push_back(t);
+            }
+            for (auto note : notes) {
+                note_times.push_back(beat_to_time(note.beat));
+            }
+        }
+
+        void cleanup(const double max_time) {
+            if (dirty) {
+                //sort();
+                calculate_times(_MIN(last_second_hint, max_time));
+            }
+            dirty = false;
+        }
+
     public:
         static void parse_event_list(std::istream& is, std::vector<Event> &v) {
             char comma;
@@ -165,8 +272,14 @@ class Simfile {
         std::string title;
         std::string artist;
         double offset;
+        double last_second_hint;
         std::vector<Event> bpms;
         std::vector<Event> stops;
         std::vector<NoteHead> notes;
+        
+        TimeAxis beat_times;
+        TimeAxis note_times;
+
+        bool dirty = false;
 };
 

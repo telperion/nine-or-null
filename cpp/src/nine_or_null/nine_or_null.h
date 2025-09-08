@@ -14,6 +14,7 @@
 namespace nine_or_null {
     float do_the_thing();
 
+    constexpr size_t _MAX_IMAGE_DATA_SIZE = 1000000;
     using FrequencyAxis = std::vector<float>;
     using LocalResponse = std::vector<float>;
 
@@ -37,12 +38,17 @@ namespace nine_or_null {
 
         // Calculated
         std::vector<LocalResponse> slr;
+        std::shared_ptr<float[]> value_data;
+        std::shared_ptr<char[]> image_data;
+        bool ready = false;
 
         StackedLocalResponse() :
             t_w1s(0.020f),
             t_step(0.0001f),
-            window_p2(5),
-            reduce_rate(1) {
+            window_p2(4),
+            reduce_rate(2),
+            value_data(new float[_MAX_IMAGE_DATA_SIZE], [](float* p){ delete[] p; }),
+            image_data(new char[_MAX_IMAGE_DATA_SIZE * 4], [](char* p){ delete[] p; }) {
 
             frequency_filter = [](const Signal& y, const FrequencyAxis& x) {
                 float acc = 0.0f;
@@ -55,9 +61,9 @@ namespace nine_or_null {
             time_filter = [](LocalResponse& filtered, const LocalResponse& raw) {
                 std::vector<float> kernel_rev{
                     -1.0f, 
-                    -1.0f, 
+                    -3.0f, 
                     0.0f, 
-                    1.0f, 
+                    3.0f, 
                     1.0f
                 };
                 auto filtered_length = raw.size() - 2 * kernel_rev.size() + 2;
@@ -120,9 +126,6 @@ namespace nine_or_null {
             const WaveData& data,
             const Simfile& simfile
         ) {
-            auto s_offset = sampling_rate * simfile.offset;
-            auto s_beat = sampling_rate * (60.0 / simfile.bpms[0].value);
-
             Signal src;
             src.reserve(data.size());
             for (auto d : data) {
@@ -130,44 +133,58 @@ namespace nine_or_null {
             }
             
             slr.clear();
-            for (int i = 0; s_offset + (s_beat * i) < data.size(); ++i) {
+            for (auto t : simfile.get_beat_times()) {
                 LocalResponse local_response;
                 calculate_local_response(
                     local_response,
                     src,
-                    size_t(s_offset + (s_beat * i))
+                    size_t(sampling_rate * t)
                 );
                 slr.push_back(local_response);
             }
         }
 
-        bool update_texture(
-            GLuint texture
-        ) { 
+        bool update_data() {
+            ready = false;
+
             size_t width = slr[0].size();
             size_t height = slr.size();
 
-            std::shared_ptr<float[]> data(new float[width * height]);
-            std::shared_ptr<char[]> image_data(new char[width * height * 4]);  // RGBA
+            for (size_t i = 0; i < _MAX_IMAGE_DATA_SIZE; ++i) {
+                value_data[i] = 0;
+            }
+            for (size_t i = 0; i < _MAX_IMAGE_DATA_SIZE * 4; ++i) {
+                image_data[i] = 0;
+            }
 
             float max_data = 1e-12;
             for (size_t i = 0; i < height; ++i) {
                 for (size_t j = 0; j < width; ++j) {
                     size_t pixel_index = i * width + j;
                     auto pixel_data = slr[i][j];
-                    data[pixel_index] = pixel_data;
+                    value_data[pixel_index] = pixel_data;
                     max_data = (max_data > pixel_data) ? max_data : pixel_data;
                 }
             }
             for (size_t i = 0; i < height; ++i) {
                 for (size_t j = 0; j < width; ++j) {
                     size_t pixel_index = i * width + j;
-                    auto pixel_data = slr[i][j];
-                    uint32_t pixel = heatmap(data[pixel_index] / max_data);
+                    uint32_t pixel = heatmap(slr[i][j] / max_data);
                     for (size_t k = 0; k < 4; ++k) {
                         image_data[4*pixel_index + k] = (pixel >> (8 * k)) & 0xFF;
                     }
                 }
+            }
+
+            ready = true;
+            return ready;
+        }
+
+        bool update_texture(
+            GLuint texture
+        ) { 
+            if (!ready) {
+                return false;
             }
 
             // Create an OpenGL texture identifier
@@ -183,8 +200,8 @@ namespace nine_or_null {
                 GL_TEXTURE_2D, 
                 0, 
                 GL_RGBA, 
-                width,
-                height,
+                slr[0].size(),
+                slr.size(),
                 0,
                 GL_RGBA, 
                 GL_UNSIGNED_BYTE,
